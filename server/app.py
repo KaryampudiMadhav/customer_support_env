@@ -75,6 +75,7 @@ async def reset_env():
 async def step_env(action: CustomerSupportAction):
     """Execute a step in the environment."""
     obs = get_env().step(action)
+    env = get_env()
     return {
         "customer_message": obs.customer_message,
         "ticket_id": obs.ticket_info.ticket_id,
@@ -83,6 +84,16 @@ async def step_env(action: CustomerSupportAction):
         "reward": obs.reward,
         "total_reward": obs.total_reward,
         "action_type": action.action_type,
+        "sla_steps_left": obs.sla_steps_left,
+        "action_history": [
+            {
+                "step": entry.step,
+                "action_type": entry.action_type,
+                "description": entry.description,
+                "reward": entry.reward
+            }
+            for entry in obs.action_history
+        ],
     }
 
 
@@ -243,21 +254,21 @@ UI_HTML = """<!DOCTYPE html>
   <title>Customer Support Command Center</title>
   <style>
     :root {
-      --bg: #141517;
-      --surface: #25262b;
-      --border: #373a40;
-      --text: #e9ecef;
-      --muted: #868e96;
-      --accent: #4c6ef5;
-      --exec: #e8590c;
-      --exec-hover: #fd7e14;
-      --hint-bg: #1b4332;
-      --hint-border: #2b8a3e;
-      --card-blue: #1864ab;
-      --card-orange: #d9480f;
-      --card-green: #2b8a3e;
-      --card-grey: #495057;
-      --danger: #fa5252;
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #3b82f6;
+      --exec: #f59e0b;
+      --exec-hover: #d97706;
+      --hint-bg: #8b5cf61a;
+      --hint-border: #8b5cf680;
+      --card-blue: #2563eb;
+      --card-orange: #ea580c;
+      --card-green: #16a34a;
+      --card-grey: #475569;
+      --danger: #ef4444;
       --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
     }
     * { box-sizing: border-box; }
@@ -270,226 +281,179 @@ UI_HTML = """<!DOCTYPE html>
       color: var(--text);
       line-height: 1.45;
     }
-    .wrap { max-width: 56rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
-    h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.25rem; letter-spacing: -0.02em; }
-    .sub { color: var(--muted); font-size: 0.875rem; margin: 0 0 1.25rem; }
-    .hint-bar {
-      background: var(--hint-bg);
-      border: 1px solid var(--hint-border);
-      color: #b2f2bb;
-      font-size: 0.8rem;
-      padding: 0.5rem 0.75rem;
-      border-radius: 6px;
-      margin-bottom: 1rem;
-    }
-    .panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1rem 1.15rem;
-      margin-bottom: 1rem;
-    }
-    .panel h2 {
-      margin: 0 0 0.75rem;
-      font-size: 0.95rem;
-      font-weight: 600;
-      color: var(--text);
-    }
-    label { font-size: 0.75rem; color: var(--muted); display: block; margin-bottom: 0.3rem; }
-    label .hint { font-weight: 400; color: #5c636a; }
-    select, input[type="text"], input[type="number"], textarea {
-      width: 100%;
-      padding: 0.5rem 0.55rem;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: #1a1b1e;
-      color: var(--text);
-      font-size: 0.85rem;
-    }
-    select {
-      cursor: pointer;
-      appearance: auto;
-      min-height: 2.25rem;
-    }
-    textarea { font-family: var(--mono); font-size: 0.8rem; min-height: 4.5rem; resize: vertical; }
-    textarea, pre { scrollbar-width: thin; scrollbar-color: #5c636a #141517; }
-    textarea::-webkit-scrollbar, pre::-webkit-scrollbar { width: 8px; height: 8px; }
-    textarea::-webkit-scrollbar-corner, pre::-webkit-scrollbar-corner { background: #141517; }
-    textarea::-webkit-scrollbar-track, pre::-webkit-scrollbar-track { background: #141517; border-radius: 4px; }
-    textarea::-webkit-scrollbar-thumb, pre::-webkit-scrollbar-thumb { background: #5c636a; border-radius: 4px; border: 2px solid #141517; }
-    textarea::-webkit-scrollbar-thumb:hover, pre::-webkit-scrollbar-thumb:hover { background: #868e96; }
-    input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
-    input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-    .form-grid { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
-    @media (min-width: 560px) { .form-grid.cols-2 { grid-template-columns: 1fr 1fr; } }
-    .field-group { display: none; }
-    .field-group.active { display: block; }
-    .btn-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
-    button {
-      border: none;
-      padding: 0.55rem 1rem;
-      border-radius: 8px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      cursor: pointer;
-      text-transform: uppercase;
-      letter-spacing: 0.03em;
-    }
-    button.exec { background: var(--exec); color: #fff; }
-    button.exec:hover:not(:disabled) { background: var(--exec-hover); }
-    button.exec:disabled { background: #495057; color: #868e96; cursor: not-allowed; opacity: 0.65; }
-    button.secondary { background: #495057; color: #fff; }
-    button.secondary:hover { background: #5c636a; }
-    .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.65rem; }
-    @media (min-width: 720px) { .metrics { grid-template-columns: repeat(4, 1fr); } }
-    .metric { border-radius: 8px; padding: 0.75rem 0.85rem; color: #fff; }
-    .metric .m-label { font-size: 0.65rem; text-transform: uppercase; opacity: 0.9; letter-spacing: 0.06em; }
-    .metric .m-val { font-size: 1.35rem; font-weight: 700; margin-top: 0.2rem; font-variant-numeric: tabular-nums; }
-    .metric.blue { background: linear-gradient(135deg, var(--card-blue), #1c7ed6); }
-    .metric.orange { background: linear-gradient(135deg, var(--card-orange), #e8590c); }
-    .metric.green { background: linear-gradient(135deg, var(--card-green), #37b24d); }
-    .metric.grey { background: linear-gradient(135deg, #495057, #6c757d); }
-    pre { margin: 0; padding: 0.65rem 0.75rem; background: #1a1b1e; border: 1px solid var(--border); border-radius: 6px; font-family: var(--mono); font-size: 0.72rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
-    .tag { font-size: 0.72rem; color: var(--muted); margin-bottom: 0.25rem; }
-    #status { font-size: 0.8rem; min-height: 1.25rem; margin: 0.5rem 0; }
-    #status.err { color: var(--danger); }
-    #toast-root { position: fixed; top: 0.75rem; left: 50%; transform: translateX(-50%); z-index: 10000; display: flex; flex-direction: column; align-items: stretch; gap: 0.45rem; max-width: min(38rem, calc(100vw - 1.5rem)); pointer-events: none; }
-    .toast { pointer-events: auto; margin: 0; padding: 0.65rem 1rem; border-radius: 8px; font-size: 0.82rem; line-height: 1.45; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); border: 1px solid rgba(250, 82, 82, 0.45); background: #3b1219; color: #ffc9c9; opacity: 0; transform: translateY(-0.4rem); transition: opacity 0.22s ease, transform 0.22s ease; cursor: pointer; word-break: break-word; }
-    .toast.toast-visible { opacity: 1; transform: translateY(0); }
-    .toast:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
-    footer { margin-top: 1.25rem; font-size: 0.72rem; color: var(--muted); }
-    footer a { color: var(--accent); }
-    h2.section-title { font-size: 1rem; font-weight: 700; color: #f8f9fa; margin: 0 0 0.5rem; letter-spacing: -0.01em; }
-    .ticket-panel { background: #1e1f23 !important; border-color: #2c2e33 !important; padding: 1rem 1.1rem 1.1rem !important; }
-    .ticket-pills { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 0.85rem; }
-    .pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.28rem 0.65rem; border-radius: 5px; background: #2f3138; border: 1px solid #3d4049; font-size: 0.72rem; color: #dee2e6; }
-    .pill kbd { font-family: inherit; font-weight: 600; color: #adb5bd; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; }
-    .pill span.val { font-weight: 600; color: #fff; }
-    .ticket-msg-wrap { background: #121214; border: 1px solid #2c2e33; border-radius: 6px; padding: 0.75rem 0.9rem 1rem; }
-    .ticket-msg-label { font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #868e96; margin-bottom: 0.5rem; }
-    .ticket-msg-body { font-size: 0.95rem; line-height: 1.55; color: #f1f3f5; white-space: pre-wrap; word-break: break-word; }
-    .ticket-msg-body.empty { color: #5c636a; font-style: italic; }
-    .timeline-panel { background: #252830 !important; border-color: #3d4150 !important; }
-    .timeline-scroll { max-height: 18rem; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #5c636a #141517; }
-    .timeline-scroll::-webkit-scrollbar { width: 8px; }
-    .timeline-scroll::-webkit-scrollbar-track { background: #141517; border-radius: 4px; }
-    .timeline-scroll::-webkit-scrollbar-thumb { background: #5c636a; border-radius: 4px; border: 2px solid #141517; }
-    .timeline-scroll::-webkit-scrollbar-thumb:hover { background: #868e96; }
-    .timeline-list { display: flex; flex-direction: column; gap: 0.5rem; }
-    .timeline-item { background: #121214; border: 1px solid #2c2e33; border-radius: 6px; padding: 0.65rem 0.85rem; overflow: hidden; }
-    .timeline-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
-    .tl-main { min-width: 0; flex: 1; }
-    .tl-step-num { font-weight: 700; color: #e9ecef; font-size: 0.82rem; }
-    .tl-action-name { font-size: 0.82rem; color: #ced4da; font-weight: 500; }
-    .tl-reward { font-size: 0.85rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #fff; flex-shrink: 0; }
-    .tl-reward.neg { color: #ff8787; }
-    .tl-reward.pos { color: #8ce99a; }
-    .tl-feedback { margin-top: 0.45rem; padding-top: 0.45rem; border-top: 1px solid #2c2e33; font-size: 0.72rem; line-height: 1.4; color: #868e96; }
-    .timeline-empty { text-align: center; padding: 1.25rem 0.75rem; color: #868e96; font-size: 0.82rem; background: #121214; border-radius: 6px; border: 1px dashed #3d4049; }
-    .page-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.25rem; }
-    .page-head-text { flex: 1; min-width: 12rem; }
-    .page-head-text h1 { margin-bottom: 0.25rem; }
-    .page-head-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
-    a.btn-mini { display: inline-block; padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.72rem; font-weight: 600; text-decoration: none; text-transform: uppercase; letter-spacing: 0.04em; background: #fdfd96; color: #111; border: none; cursor: pointer; font-family: inherit; line-height: 1.2; }
-    a.btn-mini:hover { filter: brightness(1.06); }
-    a.btn-mini:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .ticket-section { margin-bottom: 1rem; }
-    .ticket-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; }
-    .ticket-info-item { background: #2f3138; padding: 0.5rem 0.75rem; border-radius: 5px; font-size: 0.75rem; }
-    .ticket-info-item kbd { color: #adb5bd; font-size: 0.68rem; text-transform: uppercase; }
-    .ticket-info-item span { color: #fff; font-weight: 600; }
+    .wrap { max-width: 1600px; margin: 0 auto; padding: 1.5rem 2rem 3rem; display: flex; flex-direction: column; gap: 1.5rem; }
+    .page-head { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }
+    h1 { font-size: 1.5rem; font-weight: 700; margin: 0; letter-spacing: -0.02em; }
+    .page-head-text p { color: var(--muted); font-size: 0.9rem; margin: 0.5rem 0 0; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; width: 100%; }
+    .metric { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .metric .m-label { font-size: 0.75rem; text-transform: uppercase; color: var(--muted); letter-spacing: 0.05em; font-weight: 600; }
+    .metric .m-val { font-size: 1.75rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .metric.blue .m-val { color: #60a5fa; }
+    .metric.orange .m-val { color: #fb923c; }
+    .metric.green .m-val { color: #4ade80; }
+    .metric.grey .m-val { color: #cbd5e1; }
+
+    .main-grid { display: grid; grid-template-columns: 350px 1fr 350px; gap: 1.5rem; align-items: start; }
+
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; }
+    .panel-header { background: #0f172ab3; padding: 1rem; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 0.95rem; }
+    .panel-body { padding: 1rem; }
+
+    label { font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 0.4rem; font-weight: 500; }
+    select, input[type="text"], input[type="number"], textarea { width: 100%; padding: 0.6rem 0.75rem; border-radius: 8px; border: 1px solid var(--border); background: #0f172a; color: var(--text); font-size: 0.9rem; transition: border-color 0.2s; }
+    select:focus, input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+    textarea { font-family: var(--mono); font-size: 0.85rem; min-height: 80px; resize: vertical; }
+    .form-grid { display: grid; gap: 1rem; margin-top: 1rem; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+    button { border: none; padding: 0.75rem 1.25rem; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em; transition: all 0.2s; }
+    button.exec { background: var(--exec); color: #fff; width: 100%; margin-top: 1rem; }
+    button.exec:hover:not(:disabled) { background: var(--exec-hover); transform: translateY(-1px); }
+    button.exec:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; }
+    button.secondary { background: var(--border); color: var(--text); }
+    button.secondary:hover { background: #475569; }
+    .action-bar { display: flex; gap: 0.5rem; margin-top: 1rem; }
+    .action-bar button { flex: 1; padding: 0.6rem 0.5rem; font-size: 0.75rem; }
+
+    .timeline-scroll { max-height: calc(100vh - 250px); overflow-y: auto; padding-right: 0.5rem; }
+    .timeline-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .timeline-item { background: #0f172a; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
+    .tl-header { display: flex; justify-content: space-between; margin-bottom: 0.5rem; align-items: center; }
+    .tl-step-num { font-size: 0.75rem; font-weight: 600; color: var(--muted); padding: 0.2rem 0.5rem; background: var(--surface); border-radius: 12px; }
+    .tl-action-name { font-size: 0.85rem; color: var(--accent); font-weight: 600; text-transform: uppercase; }
+    .tl-reward { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+    .tl-reward.pos { color: var(--card-green); }
+    .tl-reward.neg { color: var(--danger); }
+    .tl-feedback { color: #cbd5e1; font-size: 0.8rem; line-height: 1.5; border-top: 1px dashed var(--border); padding-top: 0.5rem; margin-top: 0.5rem; }
+
+    .ticket-pills { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
+    .pill { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; background: #0f172a; border: 1px solid var(--border); border-radius: 6px; font-size: 0.8rem; }
+    .pill kbd { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; font-family: inherit; font-weight: 600; }
+    .pill span { color: #f8fafc; font-weight: 600; }
+
+    .ticket-msg { background: #0f172a; border-left: 4px solid var(--accent); padding: 1.25rem; border-radius: 0 8px 8px 0; margin-bottom: 1.5rem; }
+    .ticket-msg-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; font-weight: 600; margin-bottom: 0.75rem; letter-spacing: 0.05em; }
+    .ticket-msg-body { font-size: 1.05rem; line-height: 1.6; color: #f8fafc; white-space: pre-wrap; font-style: italic; }
+
+    pre { margin: 0; background: #0f172a; color: #a5b4fc; font-family: var(--mono); font-size: 0.75rem; padding: 1rem; overflow-x: auto; max-height: calc(100vh - 250px); border-radius: 8px; }
+
+    #status { font-size: 0.85rem; padding: 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-top: 1rem; min-height: 2.8rem; display: flex; align-items: center; }
+    #status.err { border-color: var(--danger); color: #fca5a5; background: #450a0a80; }
+
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+    .hint-bar { background: var(--hint-bg); border: 1px solid var(--hint-border); color: #c4b5fd; padding: 1rem; border-radius: 8px; font-size: 0.85rem; margin-bottom: 1.5rem; line-height: 1.5; }
   </style>
 </head>
 <body>
-  <div id="toast-root" aria-live="assertive" aria-relevant="additions"></div>
   <div class="wrap">
     <header class="page-head">
       <div class="page-head-text">
         <h1>Customer Support Command Center</h1>
-        <p class="sub">Handle support tickets · <a href="/health" style="color:var(--accent)">/health</a> · <a href="/docs" style="color:var(--accent)">/docs</a></p>
+        <p>Handle support tickets · <a href="/health" style="color:var(--accent)">/health</a></p>
+      </div>
+      <div class="action-bar" style="margin:0;">
+        <select id="resetCategory" style="width: auto; padding: 0.5rem;">
+          <option value="">Random Category</option>
+          <option value="refund">Refund</option>
+          <option value="replacement">Replacement</option>
+          <option value="payment">Payment</option>
+          <option value="delivery">Delivery</option>
+        </select>
+        <button type="button" class="secondary" id="btnReset">Reset Env</button>
       </div>
     </header>
-    <div class="metrics panel" style="padding:0.85rem;margin-bottom:1rem;background:#1a1b1e;border-style:dashed">
-      <div class="metric blue"><div class="m-label">Last reward</div><div class="m-val" id="mLastReward">—</div></div>
-      <div class="metric orange"><div class="m-label">Total reward</div><div class="m-val" id="mTotalReward">—</div></div>
-      <div class="metric green"><div class="m-label">Grade</div><div class="m-val" id="mScore">—</div></div>
-      <div class="metric grey"><div class="m-label">Status</div><div class="m-val" id="mStatus" style="font-size:1rem">—</div></div>
+
+    <div class="metrics">
+      <div class="metric blue"><div class="m-label">Last Reward</div><div class="m-val" id="mLastReward">—</div></div>
+      <div class="metric orange"><div class="m-label">Total Reward</div><div class="m-val" id="mTotalReward">—</div></div>
+      <div class="metric green"><div class="m-label">Grade / Score</div><div class="m-val" id="mScore">—</div></div>
+      <div class="metric grey"><div class="m-label">Episode Status</div><div class="m-val" id="mStatus" style="font-size:1.25rem; align-items:center; display:flex; height:100%;">—</div></div>
     </div>
-    <h2 class="section-title">Current Ticket</h2>
-    <div class="panel ticket-panel">
-      <div class="ticket-pills" id="ticketPills"></div>
-      <div class="ticket-msg-wrap">
-        <div class="ticket-msg-label">Customer Message</div>
-        <div class="ticket-msg-body empty" id="ticketBody">Reset or load state to show the active ticket.</div>
-      </div>
-    </div>
-    <div class="panel">
-      <div class="hint-bar">
-        <strong>Action types:</strong> refund, partial_refund, replace, escalate, clarify, deny<br>
-        Use <strong>Reset</strong> to start a new ticket, then <strong>Execute step</strong> to take an action.
-      </div>
-      <h2>Execute Action</h2>
-      <label for="actionType">Action type</label>
-      <select id="actionType">
-        <option value="clarify">clarify</option>
-        <option value="refund">refund</option>
-        <option value="partial_refund">partial_refund</option>
-        <option value="replace">replace</option>
-        <option value="escalate">escalate</option>
-        <option value="deny">deny</option>
-      </select>
-      <div class="form-grid" style="margin-top:0.75rem">
-        <div style="grid-column:1/-1">
-          <label for="actionResponse">Response message</label>
-          <textarea id="actionResponse" spellcheck="false">I understand your concern and will help resolve this.</textarea>
-        </div>
-        <div>
-          <label for="actionAmount">Amount (for refund)</label>
-          <input type="number" id="actionAmount" step="any" placeholder="0.00" />
-        </div>
-        <div>
-          <label for="actionReason">Reason</label>
-          <input type="text" id="actionReason" placeholder="Policy justification" />
+
+    <div class="main-grid">
+      <!-- Left Column: Timeline -->
+      <div class="panel">
+        <div class="panel-header">Action Timeline</div>
+        <div class="panel-body">
+          <div class="timeline-scroll">
+            <div class="timeline-list" id="timelineList">
+              <div style="color: var(--muted); text-align: center; padding: 2rem 0; font-size: 0.9rem;">No actions yet.<br/>Start an episode.</div>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="form-grid cols-2" style="margin-top:0.85rem">
-        <div>
-          <label for="resetCategory">Reset · category</label>
-          <select id="resetCategory">
-            <option value="">Random</option>
-            <option value="refund">refund</option>
-            <option value="replacement">replacement</option>
-            <option value="payment">payment</option>
-            <option value="delivery">delivery</option>
-          </select>
+
+      <!-- Center Column: Ticket & Execution -->
+      <div class="panel">
+        <div class="panel-header">Current Ticket & Execution</div>
+        <div class="panel-body">
+          <div class="ticket-pills" id="ticketPills"></div>
+
+          <div class="ticket-msg">
+            <div class="ticket-msg-label">Customer Message</div>
+            <div class="ticket-msg-body" id="ticketBody">Click "Reset Env" to generate a support ticket.</div>
+          </div>
+
+          <div class="hint-bar">
+            <strong>Action types:</strong> refund, partial_refund, replace, escalate, clarify, deny
+          </div>
+
+          <div class="form-grid">
+            <div>
+              <label for="actionType">Action Type</label>
+              <select id="actionType">
+                <option value="clarify">clarify</option>
+                <option value="refund">refund</option>
+                <option value="partial_refund">partial_refund</option>
+                <option value="replace">replace</option>
+                <option value="escalate">escalate</option>
+                <option value="deny">deny</option>
+              </select>
+            </div>
+            <div>
+              <label for="actionResponse">Response to Customer</label>
+              <textarea id="actionResponse" spellcheck="false">I understand your concern and will help resolve this.</textarea>
+            </div>
+            <div class="form-row">
+              <div>
+                <label for="actionAmount">Refund Amount ($)</label>
+                <input type="number" id="actionAmount" step="any" placeholder="e.g. 50.00" />
+              </div>
+              <div>
+                <label for="actionReason">Internal Reason</label>
+                <input type="text" id="actionReason" placeholder="Policy justification" />
+              </div>
+            </div>
+          </div>
+
+          <button type="button" class="exec" id="btnStep">Execute Action</button>
+
+          <div class="action-bar">
+            <button type="button" class="secondary" id="btnState">Get State</button>
+            <button type="button" class="secondary" id="btnGrade">Get Final Grade</button>
+          </div>
+          <div id="status">Ready</div>
         </div>
       </div>
-      <div class="btn-row">
-        <button type="button" class="exec" id="btnStep">Execute step</button>
-        <button type="button" class="secondary" id="btnReset">Reset</button>
-        <button type="button" class="secondary" id="btnState">Get state</button>
-        <button type="button" class="secondary" id="btnGrade">Get grade</button>
-      </div>
-    </div>
-    <h2 class="section-title">Action Timeline</h2>
-    <div class="panel timeline-panel">
-      <div class="timeline-scroll">
-        <div class="timeline-list" id="timelineList">
-          <div class="timeline-empty">No actions yet. Run <strong>Reset</strong>, then <strong>Execute step</strong>.</div>
+
+      <!-- Right Column: Observations -->
+      <div class="panel">
+        <div class="panel-header">Raw Observation</div>
+        <div class="panel-body" style="padding: 0;">
+          <pre id="outObs" style="border-radius: 0;">—</pre>
         </div>
       </div>
     </div>
-    <p id="status"></p>
-    <div class="panel">
-      <div class="tag">observation</div>
-      <pre id="outObs">—</pre>
-    </div>
-    <footer>Built for Customer Support Environment · POST /step takes action_type, response, amount, reason</footer>
   </div>
+
   <script>
 (function () {
   const $ = (id) => document.getElementById(id);
-  const toastRoot = $("toast-root");
   const status = $("status");
   const outObs = $("outObs");
   const mLast = $("mLastReward");
@@ -498,8 +462,10 @@ UI_HTML = """<!DOCTYPE html>
   const mStat = $("mStatus");
   let totalReward = 0;
   let episodeActive = false;
+
   function syncStepButton() { $("btnStep").disabled = !episodeActive; }
   function pretty(obj) { return JSON.stringify(obj, null, 2); }
+
   function buildAction() {
     return {
       action_type: $("actionType").value,
@@ -508,143 +474,130 @@ UI_HTML = """<!DOCTYPE html>
       reason: $("actionReason").value.trim() || "Per policy"
     };
   }
+
   function renderTicket(obs) {
     const body = $("ticketBody");
     const pills = $("ticketPills");
     pills.innerHTML = "";
-    if (!obs) { body.textContent = "No observation loaded."; body.classList.add("empty"); return; }
-    body.classList.remove("empty");
-    body.textContent = obs.customer_message || "";
+    if (!obs) { body.textContent = "No active ticket."; return; }
+    body.textContent = '"' + (obs.customer_message || "") + '"';
+
     function addPill(label, value) {
       if (value === undefined || value === null || value === "") return;
-      const p = document.createElement("div");
-      p.className = "pill";
-      const k = document.createElement("kbd");
-      k.textContent = label;
-      const v = document.createElement("span");
-      v.className = "val";
-      v.textContent = String(value);
-      p.appendChild(k); p.appendChild(v);
-      pills.appendChild(p);
+      const p = document.createElement("div"); p.className = "pill";
+      const k = document.createElement("kbd"); k.textContent = label;
+      const v = document.createElement("span"); v.textContent = String(value);
+      p.appendChild(k); p.appendChild(v); pills.appendChild(p);
     }
+
     if (obs.ticket_info) {
       addPill("ID", obs.ticket_info.ticket_id);
       addPill("Category", obs.ticket_info.issue_category);
-      addPill("Difficulty", obs.ticket_info.difficulty);
     }
     if (obs.order_info) addPill("Order", "$" + (obs.order_info.amount || 0).toFixed(2));
-    if (obs.customer_info) addPill("Satisfaction", (obs.customer_info.satisfaction || 0).toFixed(2));
+    if (obs.days_since_purchase !== undefined) addPill("Days Ago", obs.days_since_purchase);
     addPill("Phase", obs.phase);
   }
+
   function renderTimeline(obs) {
     const list = $("timelineList");
     list.innerHTML = "";
     if (!obs || !obs.action_history || obs.action_history.length === 0) {
-      list.innerHTML = '<div class="timeline-empty">No actions yet. Run <strong>Reset</strong>, then <strong>Execute step</strong>.</div>';
+      list.innerHTML = '<div style="color: var(--muted); text-align: center; padding: 2rem 0; font-size: 0.9rem;">No actions yet.<br/>Start an episode.</div>';
       return;
     }
-    obs.action_history.forEach(function (h) {
-      const item = document.createElement("div");
-      item.className = "timeline-item";
-      const row = document.createElement("div");
-      row.className = "timeline-row";
-      const main = document.createElement("div");
-      main.className = "tl-main";
-      main.innerHTML = '<span class="tl-step-num">Step ' + h.step + ':</span> <span class="tl-action-name">' + h.action_type + '</span>';
-      const rw = document.createElement("div");
-      rw.className = "tl-reward";
-      const r = Number(h.reward || 0);
-      rw.textContent = (r >= 0 ? "+" : "") + r.toFixed(2);
+    obs.action_history.forEach(h => {
+      const item = document.createElement("div"); item.className = "timeline-item";
+      const header = document.createElement("div"); header.className = "tl-header";
+
+      const left = document.createElement("div");
+      left.innerHTML = '<span class="tl-step-num">#' + h.step + '</span> <span class="tl-action-name">' + h.action_type + '</span>';
+
+      const rw = document.createElement("div"); rw.className = "tl-reward";
+      const r = Number(h.reward || 0); rw.textContent = (r >= 0 ? "+" : "") + r.toFixed(2);
       if (r < 0) rw.classList.add("neg"); else if (r > 0) rw.classList.add("pos");
-      row.appendChild(main); row.appendChild(rw);
-      item.appendChild(row);
+
+      header.appendChild(left); header.appendChild(rw);
+      item.appendChild(header);
+
       if (h.description) {
-        const fb = document.createElement("div");
-        fb.className = "tl-feedback";
+        const fb = document.createElement("div"); fb.className = "tl-feedback";
         fb.textContent = h.description;
         item.appendChild(fb);
       }
       list.appendChild(item);
     });
   }
+
   function showPayload(data) {
-    const obs = data;
-    outObs.textContent = pretty(obs);
-    const reward = parseFloat(obs.reward || 0);
+    outObs.textContent = pretty(data);
+    const reward = parseFloat(data.reward || 0);
     mLast.textContent = reward.toFixed(2);
-    totalReward += reward;
+    totalReward = data.total_reward !== undefined ? data.total_reward : (totalReward + reward);
     mTotal.textContent = totalReward.toFixed(2);
-    mStat.textContent = obs.done ? "DONE" : "RUNNING";
-    renderTicket(obs);
-    renderTimeline(obs);
+    mStat.textContent = data.done ? "DONE" : "ACTIVE";
+    mStat.style.color = data.done ? "var(--card-green)" : "var(--accent)";
+    renderTicket(data);
+    renderTimeline(data);
   }
-  function showErrorToast(msg) {
-    if (!msg || !toastRoot) return;
-    const el = document.createElement("div");
-    el.className = "toast";
-    el.textContent = msg;
-    el.setAttribute("role", "alert");
-    el.tabIndex = 0;
-    toastRoot.appendChild(el);
-    requestAnimationFrame(function () { el.classList.add("toast-visible"); });
-    function dismiss() { el.classList.remove("toast-visible"); setTimeout(function () { el.remove(); }, 280); }
-    setTimeout(dismiss, 8500);
-    el.addEventListener("click", dismiss);
-  }
+
   function setStatus(msg, isErr) {
     status.textContent = msg || "";
     status.className = isErr ? "err" : "";
-    if (isErr && msg) showErrorToast(msg);
   }
+
   async function parseJsonResponse(res) {
     const text = await res.text();
     try { return { ok: res.ok, data: JSON.parse(text), raw: text }; }
     catch { return { ok: res.ok, data: null, raw: text }; }
   }
+
   async function doReset() {
-    setStatus("POST /reset …");
+    setStatus("Resetting environment...");
     const cat = $("resetCategory").value;
-    const payload = cat ? { category: cat } : {};
-    const res = await fetch("/reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const res = await fetch("/reset", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(cat ? {category:cat} : {}) });
     const { ok, data, raw } = await parseJsonResponse(res);
     if (!ok || !data) { setStatus((data && data.detail) || raw || res.statusText, true); return; }
     totalReward = 0; episodeActive = true; syncStepButton();
     showPayload(data);
     mScore.textContent = "—";
-    setStatus("POST /reset → " + res.status);
+    setStatus("Environment reset successfully.");
   }
+
   async function doState() {
-    setStatus("GET /state …");
+    setStatus("Fetching state...");
     const res = await fetch("/state", { method: "GET" });
     const { ok, data, raw } = await parseJsonResponse(res);
     if (!ok || !data) { setStatus((data && data.detail) || raw || res.statusText, true); return; }
     episodeActive = !data.done; syncStepButton();
-    showPayload(data);
-    setStatus("GET /state → " + res.status);
+    outObs.textContent = pretty(data);
+    setStatus("State fetched.");
   }
+
   async function doStep() {
-    if (!episodeActive) { setStatus("Call Reset before executing a step.", true); return; }
-    const action = buildAction();
-    setStatus("POST /step …");
-    const res = await fetch("/step", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
+    if (!episodeActive) { setStatus("Cannot step: Episode is not active. Please reset first.", true); return; }
+    setStatus("Executing action...");
+    const res = await fetch("/step", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(buildAction()) });
     const { ok, data, raw } = await parseJsonResponse(res);
-    if (!ok || !data) { const detail = data && (data.detail || data.message); setStatus(String(detail || raw || res.statusText), true); return; }
+    if (!ok || !data) { setStatus(String((data && (data.detail || data.message)) || raw || res.statusText), true); return; }
     if (data.done) { episodeActive = false; syncStepButton(); }
     showPayload(data);
-    setStatus("POST /step → " + res.status);
+    setStatus("Action executed.");
   }
+
   async function doGrade() {
-    setStatus("GET /grade …");
+    setStatus("Fetching grade...");
     const res = await fetch("/grade", { method: "GET" });
     const { ok, data, raw } = await parseJsonResponse(res);
     if (!ok || !data) { setStatus((data && data.detail) || raw || res.statusText, true); return; }
-    mScore.textContent = data.score ? data.score.toFixed(2) : "—";
-    setStatus("GET /grade → " + res.status);
+    mScore.textContent = data.score !== undefined ? data.score.toFixed(2) : "—";
+    setStatus("Grade fetched.");
   }
-  $("btnReset").addEventListener("click", function () { doReset().catch(function (e) { setStatus(String(e), true); }); });
-  $("btnState").addEventListener("click", function () { doState().catch(function (e) { setStatus(String(e), true); }); });
-  $("btnStep").addEventListener("click", function () { doStep().catch(function (e) { setStatus(String(e), true); }); });
-  $("btnGrade").addEventListener("click", function () { doGrade().catch(function (e) { setStatus(String(e), true); }); });
+
+  $("btnReset").addEventListener("click", () => doReset().catch(e => setStatus(String(e), true)));
+  $("btnState").addEventListener("click", () => doState().catch(e => setStatus(String(e), true)));
+  $("btnStep").addEventListener("click", () => doStep().catch(e => setStatus(String(e), true)));
+  $("btnGrade").addEventListener("click", () => doGrade().catch(e => setStatus(String(e), true)));
   syncStepButton();
 })();
   </script>
@@ -663,15 +616,14 @@ def ui() -> HTMLResponse:
 # Main
 # ============================================================================
 
-def main():
+
+def main(host: str = "0.0.0.0", port: int = 8000):
     """Run the server. Entry point for openenv multi-mode deployment."""
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
+    uvicorn.run(app, host=host, port=port)
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--host", type=str, default="0.0.0.0")
     args = parser.parse_args()
-    uvicorn.run(app, host=args.host, port=args.port)
+    main(host=args.host, port=args.port)

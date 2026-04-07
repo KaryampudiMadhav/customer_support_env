@@ -30,10 +30,6 @@ except ImportError:
         VALID_TRANSACTION_STATUSES,
         VALID_DELIVERY_STATUSES,
     )
-    VALID_REASONS_REFUND = ["item_damaged", "wrong_item", "changed_mind", "late_delivery", "defective_item"]
-    VALID_REASONS_REPLACEMENT = ["item_damaged", "wrong_item", "product_defect", "not_working", "missing_parts"]
-    VALID_TRANSACTION_STATUSES = ["successful", "failed", "pending", "duplicate_charge", "reversed", "bank_delay"]
-    VALID_DELIVERY_STATUSES = ["on_time", "delayed", "lost", "in_transit", "out_for_delivery", "delivered"]
 
 
 class PolicyLoader:

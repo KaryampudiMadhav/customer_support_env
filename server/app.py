@@ -32,7 +32,7 @@ from typing import Any, Dict, Optional
 import uuid
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, HTMLResponse
+from pydantic import BaseModel
 import uvicorn
 
 try:
@@ -42,12 +42,8 @@ except ImportError:
 
 try:
     from server.customerSupportEnv_environment import CustomerSupportEnvironment
-    from server.dashboard_template import DASHBOARD_HTML
-    from server.agent import RuleBasedAgent
 except ImportError:
     from .customerSupportEnv_environment import CustomerSupportEnvironment
-    from .dashboard_template import DASHBOARD_HTML
-    from .agent import RuleBasedAgent
 
 
 app = FastAPI(
@@ -55,7 +51,6 @@ app = FastAPI(
     description="A realistic simulation of a customer support agent handling support tickets",
     version="0.1.0",
 )
-_agent = RuleBasedAgent()
 
 _env: Optional[CustomerSupportEnvironment] = None
 _websocket_sessions: Dict[str, WebSocket] = {}
@@ -69,25 +64,25 @@ def get_env() -> CustomerSupportEnvironment:
     return _env
 
 
-# Legacy INTERFACE_HTML removed for dashboard_template.py
-
-
-@app.get("/interface", response_class=HTMLResponse)
-async def interface():
-    """API Interface documentation in HTML."""
-    return HTMLResponse(content=DASHBOARD_HTML)
-
-
 @app.post("/reset", response_model=CustomerSupportObservation)
 async def reset_env():
     """Reset the environment."""
     return get_env().reset()
 
 
-@app.post("/step", response_model=CustomerSupportObservation)
+@app.post("/step")
 async def step_env(action: CustomerSupportAction):
     """Execute a step in the environment."""
-    return get_env().step(action)
+    obs = get_env().step(action)
+    return {
+        "customer_message": obs.customer_message,
+        "ticket_id": obs.ticket_info.ticket_id,
+        "phase": obs.phase,
+        "done": obs.done,
+        "reward": obs.reward,
+        "total_reward": obs.total_reward,
+        "action_type": action.action_type,
+    }
 
 
 @app.get("/state")
@@ -102,11 +97,17 @@ async def health():
     return {"status": "ok", "episode_id": get_env().state.episode_id}
 
 
+@app.get("/grade")
+async def get_grade():
+    """Get the final grade of the current episode."""
+    return {"score": get_env().grade}
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for persistent sessions.
-    
+
     Protocol:
     1. Client connects
     2. Server sends {"type": "connected", "episode_id": "..."}
@@ -117,9 +118,9 @@ async def websocket_endpoint(websocket: WebSocket):
     session_id = str(uuid.uuid4())
     await websocket.accept()
     _websocket_sessions[session_id] = websocket
-    
+
     env = get_env()
-    
+
     try:
         # Send connection confirmation
         await websocket.send_json({
@@ -127,12 +128,12 @@ async def websocket_endpoint(websocket: WebSocket):
             "episode_id": env.state.episode_id,
             "session_id": session_id,
         })
-        
+
         while True:
             # Receive message from client
             data = await websocket.receive_json()
             msg_type = data.get("type")
-            
+
             if msg_type == "reset":
                 category = data.get("category")
                 observation = env.reset(category=category)
@@ -142,7 +143,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     "reward": 0.0,
                     "done": False,
                 })
-            
+
             elif msg_type == "step":
                 action_data = data.get("action", {})
                 action = CustomerSupportAction(
@@ -153,43 +154,26 @@ async def websocket_endpoint(websocket: WebSocket):
                 )
                 observation = env.step(action)
                 await websocket.send_json({
-                    "type": "observation", 
+                    "type": "observation",
                     "data": _observation_to_dict(observation),
                     "reward": observation.reward,
                     "done": observation.done,
                 })
-            
+
             elif msg_type == "state":
                 await websocket.send_json({
                     "type": "state",
                     "episode_id": env.state.episode_id,
                     "step_count": env.state.step_count,
                 })
-            
-            elif msg_type == "predict":
-                if not _env:
-                    await websocket.send_json({"type": "error", "message": "Neural link not initialized. Reset required."})
-                    continue
-                try:
-                    observation = _env.get_observation()
-                    prediction = _agent.predict(observation)
-                    await websocket.send_json({
-                        "type": "prediction",
-                        "data": {
-                            "action_type": prediction.action_type,
-                            "response": prediction.response,
-                            "reason": prediction.reason
-                        }
-                    })
-                except Exception as e:
-                    await websocket.send_json({"type": "error", "message": f"Neural draft failure: {str(e)}"})
-            
+
+
             else:
                 await websocket.send_json({
                     "type": "error",
                     "message": f"Unknown message type: {msg_type}",
                 })
-    
+
     except WebSocketDisconnect:
         pass
     finally:

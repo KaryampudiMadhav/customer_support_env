@@ -6,9 +6,6 @@
 
 """Customersupportenv environment server components."""
 
-try:
-    from .customerSupportEnv_environment import CustomerSupportEnvironment
-except ImportError:
-    from customerSupportEnv_environment import CustomerSupportEnvironment
+from .customerSupportEnv_environment import CustomerSupportEnvironment
 
 __all__ = ["CustomerSupportEnvironment"]

@@ -12,7 +12,10 @@ from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import CustomerSupportAction, CustomerSupportObservation
+try:
+    from .models import CustomerSupportAction, CustomerSupportObservation
+except ImportError:
+    from models import CustomerSupportAction, CustomerSupportObservation  # type: ignore[no-redef]
 
 
 class CustomerSupportEnv(

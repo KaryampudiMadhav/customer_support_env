@@ -28,6 +28,7 @@ try:
         VALID_ACTION_TYPES,
         ActionHistoryEntry,
     )
+    from ..grading import final_grade
 except ImportError:
     from models import (
         CustomerSupportAction,
@@ -38,6 +39,7 @@ except ImportError:
         VALID_ACTION_TYPES,
         ActionHistoryEntry,
     )
+    from grading import final_grade
 
 
 DEFAULT_POLICIES = {
@@ -107,10 +109,35 @@ class CustomerSupportEnvironment(Environment):
         self._total_reward = 0.0
         self._max_possible_reward = 0.0
         self._action_history = []
+        self._baseline_satisfaction = 0.5
 
     @property
     def state(self) -> State:
         return self._state
+
+    @property
+    def grade(self) -> float:
+        """Compute the final grade using the grading module."""
+        if not self._action_history:
+            return 0.0
+
+        last_action = self._action_history[-1]
+        action_type = last_action.get("action_type", "")
+
+        final_obs = self.get_observation().model_dump()
+        final_obs["done"] = True  # Grade only computed after episode ends
+
+        baseline_satisfaction = self._baseline_satisfaction
+        steps_used = self._state.step_count
+        requires_decisive = self._current_ticket.get("difficulty") == "hard"
+
+        return final_grade(
+            action_type=action_type,
+            final_obs=final_obs,
+            baseline_satisfaction=baseline_satisfaction,
+            steps_used=steps_used,
+            requires_decisive=requires_decisive,
+        )
 
     def reset(
         self,
@@ -128,6 +155,7 @@ class CustomerSupportEnvironment(Environment):
         self._action_history = []
         self._current_ticket = self._generate_random_ticket(category=kwargs.get("category"))
         self._rng = random.Random(self._state.episode_id)
+        self._baseline_satisfaction = self._current_ticket.get("customer_info", {}).get("satisfaction", 0.5)
 
         return self.get_observation()
 
@@ -166,7 +194,7 @@ class CustomerSupportEnvironment(Environment):
         return {
             "ticket_id": f"TKT-{self._rng.randint(1000, 9999)}",
             "issue_category": "refund",
-            "difficulty": "medium",
+            "difficulty": self._rng.choice(["easy", "medium", "hard"]),
             "customer_message": f"I want a refund because: {user_reason}",
             "order_info": {
                 "order_id": f"ORD-{self._rng.randint(10000, 999999)}",
@@ -206,7 +234,7 @@ class CustomerSupportEnvironment(Environment):
         return {
             "ticket_id": f"TKT-{self._rng.randint(1000, 9999)}",
             "issue_category": "replacement",
-            "difficulty": "medium",
+            "difficulty": self._rng.choice(["easy", "medium", "hard"]),
             "customer_message": f"I need a replacement because: {user_reason}",
             "order_info": {
                 "order_id": f"ORD-{self._rng.randint(10000, 999999)}",
@@ -242,7 +270,7 @@ class CustomerSupportEnvironment(Environment):
         return {
             "ticket_id": f"TKT-{self._rng.randint(1000, 9999)}",
             "issue_category": "payment",
-            "difficulty": "medium",
+            "difficulty": self._rng.choice(["easy", "medium", "hard"]),
             "customer_message": f"Payment issue: {transaction_status}",
             "order_info": {
                 "order_id": f"ORD-{self._rng.randint(10000, 99999)}",
@@ -375,7 +403,7 @@ class CustomerSupportEnvironment(Environment):
 
         reward, rationale = self._evaluate_action(action)
         self._total_reward += reward
-        
+
         # Record in action history
         self._action_history.append({
             "step": self._state.step_count,
@@ -383,6 +411,10 @@ class CustomerSupportEnvironment(Environment):
             "description": rationale,
             "reward": round(reward, 2)
         })
+
+        # Set phase to resolved for decisive actions
+        if action.action_type in {"refund", "partial_refund", "replace", "escalate", "deny"}:
+            self._current_ticket["phase"] = "resolved"
 
         obs = self.get_observation()
         obs.reward = reward
@@ -500,7 +532,7 @@ class CustomerSupportEnvironment(Environment):
             return 0.5, "Clarification for payment issues."
         elif action.action_type == "escalate":
             return 0.3, "Escalation for payment issues."
-        
+
         return 0.1, "Payment policy check completed."
 
     def _evaluate_delivery_action(
@@ -516,7 +548,7 @@ class CustomerSupportEnvironment(Environment):
             return 0.5, f"Clarifying delivery timeline for {delayed_days} day delay."
         elif action.action_type == "escalate":
             return 0.3, "Escalating delivery delay."
-        
+
         return 0.2, "Delivery policy evaluation completed."
 
     def _check_days(self, condition: str, days: int) -> bool:

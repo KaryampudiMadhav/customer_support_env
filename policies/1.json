@@ -1,0 +1,107 @@
+{
+  "category": "refund",
+  "rule_priority": [
+    "edge_cases",
+    "escalation_rules",
+    "exceptions",
+    "normal_rules",
+    "default_rule"
+  ],
+
+  "required_fields": [
+    "user_reason",
+    "days_since_purchase",
+    "item_condition"
+  ],
+
+  "valid_user_reasons": [
+    "item_damaged",
+    "wrong_item",
+    "changed_mind",
+    "late_delivery",
+    "defective_item"
+  ],
+
+  "normal_rules": [
+    {
+      "id": "R1",
+      "condition": {
+        "days_since_purchase": "<=7",
+        "item_condition": "unused"
+      },
+      "action": "approve_refund",
+      "policy_reason": "Within 7-day return window and unused"
+    },
+    {
+      "id": "R2",
+      "condition": {
+        "days_since_purchase": ">7"
+      },
+      "action": "deny_refund",
+      "policy_reason": "Outside 7-day return window"
+    },
+    {
+      "id": "R3",
+      "condition": {
+        "item_condition": "used",
+        "days_since_purchase": "<=7"
+      },
+      "action": "deny_refund",
+      "policy_reason": "Used items are not eligible for refund"
+    }
+  ],
+
+  "exceptions": [
+    {
+      "id": "E1",
+      "condition": {
+        "user_reason": "item_damaged"
+      },
+      "override_action": "offer_resolution_options",
+      "options": ["approve_refund", "initiate_replacement"],
+      "multi_step": true,
+      "policy_reason": "Damaged item may qualify for refund or replacement"
+    },
+    {
+      "id": "E2",
+      "condition": {
+        "user_reason": "wrong_item"
+      },
+      "override_action": "offer_resolution_options",
+      "options": ["approve_refund", "initiate_replacement"],
+      "multi_step": true,
+      "policy_reason": "Wrong item delivered may qualify for refund or replacement"
+    }
+  ],
+
+  "edge_cases": [
+    {
+      "condition": "missing_required_fields",
+      "action": "request_clarification",
+      "policy_reason": "Required fields missing"
+    },
+    {
+      "condition": "user_reason is null or user_reason == unknown",
+      "action": "request_clarification",
+      "policy_reason": "Reason must be specified"
+    },
+    {
+      "condition": "item_condition not in [unused, used]",
+      "action": "request_clarification",
+      "policy_reason": "Invalid item condition"
+    }
+  ],
+
+  "escalation_rules": [
+    {
+      "condition": "conflicting_information",
+      "action": "escalate",
+      "policy_reason": "Conflicting inputs"
+    }
+  ],
+
+  "default_rule": {
+    "action": "deny_refund",
+    "reason": "Does not meet refund policy"
+  }
+}

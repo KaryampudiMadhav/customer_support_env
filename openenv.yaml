@@ -1,0 +1,8 @@
+spec_version: 1
+name: customerSupportEnv
+type: space
+runtime: fastapi
+app: server.app:app
+port: 8000
+description: Customer Support Environment - Simulates support ticket handling with policy evaluation
+version: 0.1.0

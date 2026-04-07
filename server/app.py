@@ -238,9 +238,9 @@ def _observation_to_dict(obs: CustomerSupportObservation) -> Dict[str, Any]:
 # Main
 # ============================================================================
 
-def main(host: str = "0.0.0.0", port: int = 8000):
-    """Run the server."""
-    uvicorn.run(app, host=host, port=port)
+def main():
+    """Run the server. Entry point for openenv multi-mode deployment."""
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
 if __name__ == "__main__":
@@ -249,4 +249,4 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--host", type=str, default="0.0.0.0")
     args = parser.parse_args()
-    main(host=args.host, port=args.port)
+    uvicorn.run(app, host=args.host, port=args.port)

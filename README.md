@@ -46,7 +46,7 @@ print(f"Order amount: ${obs.order_info.amount}")
 # Evaluate agent response
 action = CustomerSupportAction(
     response="I understand your concern and will help resolve this.",
-    action_type="clarify",  # refund, partial_refund, replace, escalate, clarify, deny
+    action_type="refund",  # refund, partial_refund, replace, escalate, clarify, deny
     amount=99.99,  # optional, for refund actions
     reason="within policy guidelines"
 )
@@ -63,8 +63,8 @@ print(f"Done: {result.done}")
 | POST | `/reset` | Initialize new ticket |
 | POST | `/step` | Execute action |
 | GET | `/state` | Get current state |
-| GET | `/schema` | Get schemas |
 | GET | `/health` | Health check |
+| GET | `/grade` | Get final episode grade |
 | GET | `/ws` | WebSocket |
 
 ## API Usage
@@ -72,7 +72,7 @@ print(f"Done: {result.done}")
 ### Python Client
 
 ```python
-from customerSupportEnv import CustomerSupportEnv, CustomerSupportAction
+from customerSupportEnv import CustomerSupportAction
 
 env = CustomerSupportEnv(base_url="http://localhost:8000")
 result = env.reset()
@@ -95,19 +95,22 @@ print(f"Reward: {result.reward}")
 curl -X POST http://localhost:8000/reset
 ```
 
-**Step (action wrapped in `action` key):**
+**Step:**
 ```bash
 curl -X POST http://localhost:8000/step \
   -H "Content-Type: application/json" \
   -d '{
-    "action": {
-      "response": "I will help.",
-      "action_type": "refund",
-      "amount": 100.0,
-      "reason": "within policy"
-    }
+    "response": "I will help.",
+    "action_type": "refund",
+    "amount": 100.0,
+    "reason": "within policy"
   }'
-``` |
+```
+
+**Get Grade:**
+```bash
+curl http://localhost:8000/grade
+```
 
 ## Action Schema
 
@@ -134,6 +137,20 @@ curl -X POST http://localhost:8000/step \
       "description": "Justification for the decision"
     }
   }
+}
+```
+
+## Step Response
+
+```json
+{
+  "customer_message": "...",
+  "ticket_id": "TKT-1234",
+  "phase": "resolved",
+  "done": true,
+  "reward": 0.8,
+  "total_reward": 0.8,
+  "action_type": "refund"
 }
 ```
 
@@ -165,21 +182,32 @@ docker build -t customer-support-env .
 docker run -p 8000:8000 customer-support-env
 ```
 
-## Testing
-
-```bash
-python test_env.py
-```
-
 Output:
 ```
 === Customer Support Environment Test ===
 
 1. Reset: ticket=payment
-2. Step with 'clarify': reward=0.30, done=True
+2. Step with 'refund': reward=0.20, done=True
 3. State: episode_id=d2d6cc3b..., step_count=1
 
 === All tests passed! ===
+```
+
+## Grading System
+
+The environment includes a grading module that scores episode performance:
+
+| Component | Points | Description |
+|-----------|--------|-------------|
+| Valid action + resolved | 0.40 | Episode ended with valid action and resolved phase |
+| Satisfaction improvement | 0.20 | Customer satisfaction increased |
+| No over-use of clarify | 0.10 | Clarify ratio < 50% of actions |
+| Step efficiency | 0.30 | Fewer steps to resolve |
+
+**Grade endpoint** returns a score in (0.01, 0.99):
+```bash
+curl http://localhost:8000/grade
+# {"score": 0.8}
 ```
 
 ## Reward Calculation

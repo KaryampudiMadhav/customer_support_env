@@ -412,13 +412,23 @@ class CustomerSupportEnvironment(Environment):
             "reward": round(reward, 2)
         })
 
-        # Set phase to resolved for decisive actions
-        if action.action_type in {"refund", "partial_refund", "replace", "escalate", "deny"}:
+        # Update SLA steps left
+        current_sla = self._current_ticket.get("sla_steps_left", 2)
+        self._current_ticket["sla_steps_left"] = max(0, current_sla - 1)
+
+        # Determine if episode should end
+        decisive_actions = {"refund", "partial_refund", "replace", "escalate", "deny"}
+        is_decisive = action.action_type in decisive_actions
+        is_sla_exhausted = self._current_ticket.get("sla_steps_left", 0) <= 0
+
+        # Set phase based on action
+        if is_decisive:
             self._current_ticket["phase"] = "resolved"
 
         obs = self.get_observation()
         obs.reward = reward
-        obs.done = True
+        # Episode ends on decisive action OR SLA exhaustion
+        obs.done = is_decisive or is_sla_exhausted
 
         return obs
 

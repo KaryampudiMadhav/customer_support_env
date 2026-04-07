@@ -235,7 +235,7 @@ def _observation_to_dict(obs: CustomerSupportObservation) -> Dict[str, Any]:
     }
 
 
-_DEBUG_UI_HTML = """<!DOCTYPE html>
+UI_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -656,7 +656,7 @@ _DEBUG_UI_HTML = """<!DOCTYPE html>
 @app.get("/web", response_class=HTMLResponse, tags=["Interface"], summary="Web UI")
 def ui() -> HTMLResponse:
     """Browser debug UI."""
-    return HTMLResponse(content=_DEBUG_UI_HTML)
+    return HTMLResponse(content=UI_HTML)
 
 
 # ============================================================================

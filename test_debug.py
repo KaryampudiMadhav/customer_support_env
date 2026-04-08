@@ -4,8 +4,6 @@ import json
 
 async def test():
     async with websockets.connect('ws://127.0.0.1:8000/ws') as ws:
-        await ws.recv()
-        
         # Send what EnvClient sends
         msg = '{"type": "reset", "data": {"category": "refund"}}'
         await ws.send(msg)
@@ -13,11 +11,9 @@ async def test():
         
         response = json.loads(response_raw)
         
-        # Simulate what EnvClient.reset does:
+        # Simulate what EnvClient.reset does.
         payload = response.get("data", {})
-        
-        # What the client does:
-        obs_data = payload  # This is my fix
+        obs_data = payload.get("observation", {})
         ticket_data = obs_data.get("ticket_info", {})
         
         print("payload (obs_data):", type(payload))

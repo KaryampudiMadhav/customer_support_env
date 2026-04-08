@@ -8,12 +8,12 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
-    && pip install uv openenv \
+    && pip install --no-cache-dir -U pip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . /app
 
-RUN uv sync --frozen --no-install-project --no-dev
+RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]

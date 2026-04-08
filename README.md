@@ -17,6 +17,85 @@ tags:
 
 A realistic simulation of a customer support agent handling support tickets. The environment evaluates agent performance across communication quality, correctness of resolution, and adherence to support policies.
 
+## Why This Environment (Real-World Utility)
+
+This environment models real customer support workflows that support teams execute daily:
+- Refund policy decisions
+- Replacement approvals/denials
+- Payment issue triage
+- Delivery delay handling
+
+It is designed for training/evaluating policy-aware agents, not toy gameplay.
+
+## OpenEnv Spec Compliance
+
+- Typed models are implemented with Pydantic in `models.py`:
+  - `CustomerSupportAction`
+  - `CustomerSupportObservation`
+- Environment API implemented in `server/customerSupportEnv_environment.py`:
+  - `reset(**kwargs)`
+  - `step(action)`
+  - `state` property (OpenEnv state)
+- OpenEnv metadata is provided in `openenv.yaml`.
+- Validation command:
+
+```bash
+python -m openenv.cli.__main__ validate
+```
+
+## Task Suite (Easy -> Medium -> Hard)
+
+The baseline evaluator runs three deterministic tasks:
+
+1. `easy-delivery` (category=`delivery`, difficulty=`easy`)
+2. `medium-refund` (category=`refund`, difficulty=`medium`)
+3. `hard-payment` (category=`payment`, difficulty=`hard`)
+
+Each task is scored in `[0.0, 1.0]` and supports deterministic grading through `server/grading.py`.
+
+## Reward Design
+
+- Per-step rewards provide dense feedback for partial progress.
+- Rewards increase for policy-aligned actions.
+- Penalties apply for undesirable behavior:
+  - invalid actions
+  - repetitive loop-like clarifications
+  - hallucinated policies / unrealistic claims
+  - SLA exhaustion without resolution
+
+## Inference Script Requirements
+
+`inference.py` is in the project root and uses the OpenAI client for all model calls.
+
+Required environment variables:
+- `HF_TOKEN` (required)
+- `API_BASE_URL` (default set)
+- `MODEL_NAME` (default set)
+
+Optional:
+- `ENV_BASE_URL` (default: `http://127.0.0.1:8000`)
+
+The script emits strict structured logs:
+- `[START]`
+- `[STEP]`
+- `[END]`
+
+## Baseline Scores
+
+Example deterministic local run (with fallback policy path when remote model is unavailable):
+
+| Task | Score |
+|------|-------|
+| easy-delivery | 0.27 |
+| medium-refund | 0.10 |
+| hard-payment | 0.05 |
+
+Run command:
+
+```bash
+HF_TOKEN=<token> API_BASE_URL=https://router.huggingface.co/v1 MODEL_NAME=Qwen/Qwen2.5-72B-Instruct ENV_BASE_URL=http://127.0.0.1:8000 python inference.py
+```
+
 ## Policy Difficulty Classification
 
 | Category | File | Difficulty | Rationale |

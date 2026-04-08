@@ -30,7 +30,7 @@ try:
         TicketInfo,
     )
 except ImportError:
-    from grading import final_grade
+    from server.grading import final_grade
     from models import (
         VALID_ACTION_TYPES,
         ActionHistoryEntry,
@@ -217,32 +217,45 @@ class CustomerSupportEnvironment(Environment):
         self._total_reward = 0.0
         self._max_possible_reward = 0.0
         self._action_history = []
+        if seed is not None:
+            self._rng = random.Random(seed)
         self._current_ticket = self._generate_random_ticket(
-            category=kwargs.get("category")
+            category=kwargs.get("category"),
+            difficulty=kwargs.get("difficulty"),
         )
-        self._rng = random.Random(self._state.episode_id)
+        if seed is None:
+            self._rng = random.Random(self._state.episode_id)
         self._baseline_satisfaction = self._current_ticket.get("customer_info", {}).get(
             "satisfaction", 0.5
         )
 
         return self.get_observation()
 
-    def _generate_random_ticket(self, category: Optional[str] = None) -> Dict[str, Any]:
+    def _generate_random_ticket(
+        self, category: Optional[str] = None, difficulty: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Generate a random ticket or one from a specific category."""
         if not category:
             categories = ["refund", "replacement", "payment", "delivery"]
             category = self._rng.choice(categories)
 
         if category == "refund":
-            return self._generate_refund_ticket()
+            return self._generate_refund_ticket(difficulty)
         elif category == "replacement":
-            return self._generate_replacement_ticket()
+            return self._generate_replacement_ticket(difficulty)
         elif category == "payment":
-            return self._generate_payment_ticket()
+            return self._generate_payment_ticket(difficulty)
         else:
-            return self._generate_delivery_ticket()
+            return self._generate_delivery_ticket(difficulty)
 
-    def _generate_refund_ticket(self) -> Dict[str, Any]:
+    def _resolve_difficulty(
+        self, requested: Optional[str], default_choices: list[str]
+    ) -> str:
+        if requested in {"easy", "medium", "hard"}:
+            return str(requested)
+        return self._rng.choice(default_choices)
+
+    def _generate_refund_ticket(self, difficulty: Optional[str] = None) -> Dict[str, Any]:
         """Generate a refund ticket."""
         policy = self._policies.get("refund", {})
         valid_reasons = policy.get(
@@ -269,7 +282,7 @@ class CustomerSupportEnvironment(Environment):
         return {
             "ticket_id": f"TKT-{self._rng.randint(1000, 9999)}",
             "issue_category": "refund",
-            "difficulty": self._rng.choice(["easy", "medium", "hard"]),
+            "difficulty": self._resolve_difficulty(difficulty, ["easy", "medium", "hard"]),
             "customer_message": f"I want a refund because: {user_reason}",
             "order_info": {
                 "order_id": f"ORD-{self._rng.randint(10000, 999999)}",
@@ -299,7 +312,7 @@ class CustomerSupportEnvironment(Environment):
             "sla_steps_left": self._rng.randint(2, 5),
         }
 
-    def _generate_replacement_ticket(self) -> Dict[str, Any]:
+    def _generate_replacement_ticket(self, difficulty: Optional[str] = None) -> Dict[str, Any]:
         """Generate a replacement ticket."""
         policy = self._policies.get("replacement", {})
         valid_reasons = policy.get(
@@ -320,7 +333,7 @@ class CustomerSupportEnvironment(Environment):
         return {
             "ticket_id": f"TKT-{self._rng.randint(1000, 9999)}",
             "issue_category": "replacement",
-            "difficulty": self._rng.choice(["easy", "medium", "hard"]),
+            "difficulty": self._resolve_difficulty(difficulty, ["easy", "medium", "hard"]),
             "customer_message": f"I need a replacement because: {user_reason}",
             "order_info": {
                 "order_id": f"ORD-{self._rng.randint(10000, 999999)}",
@@ -349,7 +362,7 @@ class CustomerSupportEnvironment(Environment):
             "sla_steps_left": self._rng.randint(2, 5),
         }
 
-    def _generate_payment_ticket(self) -> Dict[str, Any]:
+    def _generate_payment_ticket(self, difficulty: Optional[str] = None) -> Dict[str, Any]:
         """Generate a payment ticket."""
         policy = self._policies.get("payment", {})
         valid_statuses = policy.get(
@@ -368,7 +381,7 @@ class CustomerSupportEnvironment(Environment):
         return {
             "ticket_id": f"TKT-{self._rng.randint(1000, 9999)}",
             "issue_category": "payment",
-            "difficulty": self._rng.choice(["easy", "medium", "hard"]),
+            "difficulty": self._resolve_difficulty(difficulty, ["easy", "medium", "hard"]),
             "customer_message": f"Payment issue: {transaction_status}",
             "order_info": {
                 "order_id": f"ORD-{self._rng.randint(10000, 99999)}",
@@ -397,7 +410,7 @@ class CustomerSupportEnvironment(Environment):
             "sla_steps_left": self._rng.randint(2, 5),
         }
 
-    def _generate_delivery_ticket(self) -> Dict[str, Any]:
+    def _generate_delivery_ticket(self, difficulty: Optional[str] = None) -> Dict[str, Any]:
         """Generate a delivery ticket."""
         policy = self._policies.get("delivery", {})
         valid_statuses = policy.get(
@@ -418,7 +431,7 @@ class CustomerSupportEnvironment(Environment):
         return {
             "ticket_id": f"TKT-{self._rng.randint(1000, 9999)}",
             "issue_category": "delivery",
-            "difficulty": "easy",
+            "difficulty": self._resolve_difficulty(difficulty, ["easy", "medium", "hard"]),
             "customer_message": f"Delivery status: {delivery_status}, delayed {delayed_days} days",
             "order_info": {
                 "order_id": f"ORD-{self._rng.randint(10000, 99999)}",
@@ -521,6 +534,14 @@ class CustomerSupportEnvironment(Environment):
         self._max_possible_reward += 1.0
 
         reward, rationale = self._evaluate_action(action)
+
+        # Penalize obvious looping behavior (repeating non-decisive actions).
+        if len(self._action_history) >= 2:
+            recent = [entry.get("action_type") for entry in self._action_history[-2:]]
+            if recent[0] == recent[1] == action.action_type and action.action_type == "clarify":
+                reward -= 0.2
+                rationale += " (Loop penalty: repeated clarify action)"
+
         self._total_reward += reward
 
         # Record in action history
@@ -550,6 +571,9 @@ class CustomerSupportEnvironment(Environment):
         obs.reward = reward
         # Episode ends on decisive action OR SLA exhaustion
         obs.done = is_decisive or is_sla_exhausted
+
+        if is_sla_exhausted and not is_decisive:
+            obs.reward = max(-1.0, obs.reward - 0.3)
 
         return obs
 

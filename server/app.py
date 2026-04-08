@@ -59,6 +59,14 @@ _env: Optional[CustomerSupportEnvironment] = None
 _websocket_sessions: Dict[str, WebSocket] = {}
 
 
+class ResetRequest(BaseModel):
+    """Optional reset parameters."""
+
+    category: Optional[str] = None
+    difficulty: Optional[str] = None
+    seed: Optional[int] = None
+
+
 def get_env() -> CustomerSupportEnvironment:
     """Get or create the environment instance."""
     global _env
@@ -68,10 +76,23 @@ def get_env() -> CustomerSupportEnvironment:
 
 
 @app.post("/reset")
-async def reset_env():
+async def reset_env(payload: Optional[ResetRequest] = None):
     """Reset the environment. Return wrapped data for OpenEnv client compatibility."""
-    obs = get_env().reset()
-    return {"data": {"observation": _observation_to_dict(obs)}}
+    payload = payload or ResetRequest()
+    obs = get_env().reset(
+        category=payload.category,
+        difficulty=payload.difficulty,
+        seed=payload.seed,
+    )
+    return {
+        "data": {
+            "observation": _observation_to_dict(obs),
+            "reward": 0.0,
+            "done": False,
+        },
+        "reward": 0.0,
+        "done": False,
+    }
 
 
 @app.post("/step")
@@ -79,7 +100,11 @@ async def step_env(action: CustomerSupportAction):
     """Execute a step in the environment and return wrapped observation for client."""
     obs = get_env().step(action)
     obs_dict = _observation_to_dict(obs)
-    return {"data": {"observation": obs_dict}, "reward": obs.reward, "done": obs.done}
+    return {
+        "data": {"observation": obs_dict, "reward": obs.reward, "done": obs.done},
+        "reward": obs.reward,
+        "done": obs.done,
+    }
 
 
 @app.get("/state")
@@ -91,7 +116,7 @@ async def get_state():
 @app.get("/health")
 async def health():
     """Health check."""
-    return {"status": "ok", "episode_id": get_env().state.episode_id}
+    return {"status": "healthy", "episode_id": get_env().state.episode_id}
 
 
 @app.get("/grade")
@@ -119,66 +144,72 @@ async def websocket_endpoint(websocket: WebSocket):
     env = get_env()
 
     try:
-        # Send connection confirmation
-        await websocket.send_json(
+      while True:
+        data = await websocket.receive_json()
+        msg_type = data.get("type")
+
+        if msg_type == "reset":
+          reset_data = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
+          category = reset_data.get("category", data.get("category"))
+          difficulty = reset_data.get("difficulty", data.get("difficulty"))
+          seed = reset_data.get("seed", data.get("seed"))
+          observation = env.reset(category=category, difficulty=difficulty, seed=seed)
+          await websocket.send_json(
             {
-                "type": "connected",
-                "episode_id": env.state.episode_id,
-                "session_id": session_id,
+              "type": "observation",
+              "data": {
+                "observation": _observation_to_dict(observation),
+                "reward": 0.0,
+                "done": False,
+              },
+              "reward": 0.0,
+              "done": False,
             }
-        )
+          )
 
-        while True:
-            # Receive message from client
-            data = await websocket.receive_json()
-            msg_type = data.get("type")
+        elif msg_type == "step":
+          action_data = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
+          if not action_data:
+            action_data = data.get("action", {})
 
-            if msg_type == "reset":
-                category = data.get("category")
-                observation = env.reset(category=category)
-                await websocket.send_json(
-                    {
-                        "type": "observation",
-                        "data": {"observation": _observation_to_dict(observation)},
-                        "reward": 0.0,
-                        "done": False,
-                    }
-                )
+          action = CustomerSupportAction(
+            response=action_data.get("response", ""),
+            action_type=action_data.get("action_type", "clarify"),
+            amount=action_data.get("amount", 0.0),
+            reason=action_data.get("reason", ""),
+          )
+          observation = env.step(action)
+          await websocket.send_json(
+            {
+              "type": "observation",
+              "data": {
+                "observation": _observation_to_dict(observation),
+                "reward": observation.reward,
+                "done": observation.done,
+              },
+              "reward": observation.reward,
+              "done": observation.done,
+            }
+          )
 
-            elif msg_type == "step":
-                action_data = data.get("action", {})
-                action = CustomerSupportAction(
-                    response=action_data.get("response", ""),
-                    action_type=action_data.get("action_type", "clarify"),
-                    amount=action_data.get("amount", 0.0),
-                    reason=action_data.get("reason", ""),
-                )
-                observation = env.step(action)
-                await websocket.send_json(
-                    {
-                        "type": "observation",
-                        "data": {"observation": _observation_to_dict(observation)},
-                        "reward": observation.reward,
-                        "done": observation.done,
-                    }
-                )
+        elif msg_type == "state":
+          await websocket.send_json(
+            {
+              "type": "state",
+              "data": {
+                "episode_id": env.state.episode_id,
+                "step_count": env.state.step_count,
+              },
+            }
+          )
 
-            elif msg_type == "state":
-                await websocket.send_json(
-                    {
-                        "type": "state",
-                        "episode_id": env.state.episode_id,
-                        "step_count": env.state.step_count,
-                    }
-                )
-
-            else:
-                await websocket.send_json(
-                    {
-                        "type": "error",
-                        "message": f"Unknown message type: {msg_type}",
-                    }
-                )
+        else:
+          await websocket.send_json(
+            {
+              "type": "error",
+              "message": f"Unknown message type: {msg_type}",
+            }
+          )
 
     except WebSocketDisconnect:
         pass

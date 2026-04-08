@@ -84,22 +84,29 @@ class CustomerSupportEnv(
         Returns:
             StepResult with CustomerSupportObservation
         """
-        obs_data = payload.get("observation", {})
-
-        ticket_data = obs_data.get("ticket_info", {})
-        order_data = obs_data.get("order_info", {})
-        customer_data = obs_data.get("customer_info", {})
+        # Extract observation data from payload (handling WebSocket 'data' wrapping)
+        obs_data = payload.get("data", payload)
 
         observation = CustomerSupportObservation(
             customer_message=obs_data.get("customer_message", ""),
-            ticket_info=ticket_data,
-            order_info=order_data,
-            customer_info=customer_data,
+            ticket_info=obs_data.get("ticket_info", {}),
+            order_info=obs_data.get("order_info", {}),
+            customer_info=obs_data.get("customer_info", {}),
             policy_context=obs_data.get("policy_context", ""),
             conversation_history=obs_data.get("conversation_history", []),
             days_since_purchase=obs_data.get("days_since_purchase", 0),
             item_condition=obs_data.get("item_condition", "unused"),
             user_reason=obs_data.get("user_reason", ""),
+            transaction_status=obs_data.get("transaction_status", ""),
+            transaction_id=obs_data.get("transaction_id", ""),
+            delivery_status=obs_data.get("delivery_status", ""),
+            delivery_delayed_days=obs_data.get("delivery_delayed_days", 0),
+            sentiment=obs_data.get("sentiment", "Neutral"),
+            phase=obs_data.get("phase", "Unassigned"),
+            sla_steps_left=obs_data.get("sla_steps_left", 2),
+            total_reward=obs_data.get("total_reward", 0.0),
+            cumulative_score=obs_data.get("cumulative_score", 0.0),
+            action_history=obs_data.get("action_history", []),
             done=payload.get("done", False),
             reward=payload.get("reward"),
             metadata=obs_data.get("metadata", {}),

@@ -175,7 +175,7 @@ def run() -> int:
     api_base_url = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
     api_key = os.getenv("API_KEY")
     model_name = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-    env_url = os.getenv("ENV_BASE_URL", "http://127.0.0.1:8000")
+    env_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
     max_tokens = 512
 
     llm_client = (
@@ -197,7 +197,7 @@ def run() -> int:
             print("[END] success=false steps=1 score=0.01 rewards=-0.10")
         return 0
 
-    with env:
+    with sync_env:
         for task in TASKS:
             rewards: list[float] = []
             success = False

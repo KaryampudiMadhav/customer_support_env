@@ -382,21 +382,10 @@ UI_HTML = """<!DOCTYPE html>
             <div class="ticket-msg-body" id="ticketBody">Click "Reset Env" to generate a support ticket.</div>
           </div>
 
-          <div class="hint-bar">
-            <strong>Action types:</strong> refund, partial_refund, replace, escalate, clarify, deny
-          </div>
-
           <div class="form-grid">
             <div>
               <label for="actionType">Action Type</label>
               <select id="actionType">
-                <option value="clarify">clarify</option>
-                <option value="refund">refund</option>
-                <option value="partial_refund">partial_refund</option>
-                <option value="replace">replace</option>
-                <option value="escalate">escalate</option>
-                <option value="deny">deny</option>
-              </select>
                 <option value="clarify">clarify</option>
                 <option value="refund">refund</option>
                 <option value="partial_refund">partial_refund</option>

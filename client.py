@@ -7,6 +7,8 @@
 """Customer Support Environment Client."""
 
 from typing import Dict
+import json
+from pathlib import Path
 
 from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
@@ -84,6 +86,12 @@ class CustomerSupportEnv(
         Returns:
             StepResult with CustomerSupportObservation
         """
+        # DEBUG: dump raw payload for troubleshooting
+        try:
+            Path("d:/customer_support_env/payload_debug.json").write_text(json.dumps(payload, indent=2))
+        except Exception:
+            pass
+
         obs_data = payload.get("observation", {})
 
         ticket_data = obs_data.get("ticket_info", {})

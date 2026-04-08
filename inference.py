@@ -44,231 +44,174 @@ from openai import OpenAI
 
 # Import from customerSupportEnv package
 try:
-    from customerSupportEnv.client import CustomerSupportEnv
-    from customerSupportEnv.models import CustomerSupportAction
+    from models import CustomerSupportAction, VALID_ACTION_TYPES
+    from grading import final_grade, partial_reward, strict_score
 except ImportError:
-    from client import CustomerSupportEnv
-    from models import CustomerSupportAction
+    from models import CustomerSupportAction, VALID_ACTION_TYPES  # type: ignore[no-redef]
+    from grading import final_grade, partial_reward, strict_score  # type: ignore[no-redef]
 
-# Environment configuration
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
-
-# Task configuration
-TASK_NAME = os.getenv("CUSTOMER_SUPPORT_TASK", "support_ticket")
-BENCHMARK = os.getenv("CUSTOMER_SUPPORT_BENCHMARK", "customerSupportEnv")
-TICKET_CATEGORY = os.getenv("TICKET_CATEGORY", None)
-
-# Inference configuration
-MAX_STEPS = int(os.getenv("MAX_STEPS", "8"))
-TEMPERATURE = float(os.getenv("TEMPERATURE", "0.7"))
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", "500"))
-SUCCESS_SCORE_THRESHOLD = float(os.getenv("SUCCESS_SCORE_THRESHOLD", "0.5"))
-
-# Valid action types
-VALID_ACTION_TYPES = [
-    "refund",
-    "partial_refund",
-    "replace",
-    "escalate",
-    "clarify",
-    "deny",
-]
+# Four ticket categories the environment supports
+TASKS = ["refund", "replacement", "payment", "delivery"]
+TASK_MAX_STEPS = {
+    "refund": 5,
+    "replacement": 5,
+    "payment": 5,
+    "delivery": 5,
+}
 
 
-def log_start(task: str, env: str, model: str) -> None:
-    print(f"[START] task={task} env={env} model={model}", flush=True)
+# ---------------------------------------------------------------------------
+# LLM response parsing
+# ---------------------------------------------------------------------------
 
+def parse_llm_response(text: str) -> dict[str, Any]:
+    """Parse LLM output into a CustomerSupportAction-compatible dict."""
+    raw = (text or "").strip()
+    if not raw:
+        return _default_action()
 
-def log_step(
-    step: int, action: str, reward: float, done: bool, error: Optional[str]
-) -> None:
-    error_val = error if error else "null"
-    done_val = str(done).lower()
-    print(
-        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
-        flush=True,
-    )
+    # Strip markdown code fences
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?", "", raw).strip()
+        raw = re.sub(r"```$", "", raw).strip()
 
-
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
-        flush=True,
-    )
-
-
-def build_system_prompt() -> str:
-    return textwrap.dedent("""
-        You are a professional customer support agent handling support tickets.
-
-        Your goal is to resolve customer issues while following company policies.
-
-        Available action types:
-        - refund: Issue a full refund to the customer
-        - partial_refund: Issue a partial refund (specify amount)
-        - replace: Initiate a product replacement
-        - escalate: Escalate to a supervisor/specialist
-        - clarify: Ask the customer for more information
-        - deny: Deny the customer's request
-
-        For each action, you must provide:
-        - action_type: The type of action you're taking
-        - response: Your message to the customer explaining your decision
-        - amount: The refund amount (for refund/partial_refund actions)
-        - reason: The justification for your decision based on policy
-
-        Always be polite, professional, and empathetic in your responses.
-        Follow the policy guidelines provided in each ticket to make fair decisions.
-
-        IMPORTANT: Output your response as a valid JSON object with exactly these fields:
-        {
-            "action_type": "<action_type>",
-            "response": "<your message to the customer>",
-            "amount": <refund_amount_or_0>,
-            "reason": "<your policy-based justification>"
-        }
-
-        Do not include any text outside the JSON object.
-    """).strip()
-
-
-def build_user_prompt(obs_dict: Dict[str, Any]) -> str:
-    ticket_info = obs_dict.get("ticket_info", {})
-    order_info = obs_dict.get("order_info", {})
-    customer_info = obs_dict.get("customer_info", {})
-
-    category = (
-        ticket_info.get("issue_category", "unknown")
-        if isinstance(ticket_info, dict)
-        else "unknown"
-    )
-    difficulty = (
-        ticket_info.get("difficulty", "medium")
-        if isinstance(ticket_info, dict)
-        else "medium"
-    )
-
-    customer_message = obs_dict.get("customer_message", "No message")
-    policy_context = obs_dict.get("policy_context", "")
-    conversation_history = obs_dict.get("conversation_history", [])
-
-    days_since_purchase = obs_dict.get("days_since_purchase", 0)
-    item_condition = obs_dict.get("item_condition", "unused")
-    user_reason = obs_dict.get("user_reason", "")
-    transaction_status = obs_dict.get("transaction_status", "")
-    delivery_status = obs_dict.get("delivery_status", "")
-    delivery_delayed_days = obs_dict.get("delivery_delayed_days", 0)
-
-    order_amount = 0.0
-    if isinstance(order_info, dict):
-        order_amount = order_info.get("amount", 0.0)
-
-    prompt = f"""You are handling a {category} support ticket.
-
-Customer Message:
-{customer_message}
-
-Ticket Category: {category}
-Difficulty: {difficulty}
-
-Order Information:
-- Order ID: {order_info.get("order_id", "N/A") if isinstance(order_info, dict) else "N/A"}
-- Amount: ${order_amount:.2f}
-- Date: {order_info.get("date", "N/A") if isinstance(order_info, dict) else "N/A"}
-- Product: {order_info.get("product", "N/A") if isinstance(order_info, dict) else "N/A"}
-- Status: {order_info.get("status", "N/A") if isinstance(order_info, dict) else "N/A"}
-
-Customer Information:
-- Name: {customer_info.get("name", "N/A") if isinstance(customer_info, dict) else "N/A"}
-- Email: {customer_info.get("email", "N/A") if isinstance(customer_info, dict) else "N/A"}
-- Satisfaction: {customer_info.get("satisfaction", 0.5) * 100:.0f}%"""
-
-    if category == "refund":
-        prompt += f"""
-Refund Details:
-- Days since purchase: {days_since_purchase}
-- Item condition: {item_condition}
-- Customer reason: {user_reason}"""
-    elif category == "payment":
-        prompt += f"""
-Payment Details:
-- Transaction status: {transaction_status}"""
-    elif category == "delivery":
-        prompt += f"""
-Delivery Details:
-- Status: {delivery_status}
-- Delayed by: {delivery_delayed_days} days"""
-
-    prompt += f"""
-
-Policy Context:
-{policy_context}"""
-
-    if conversation_history:
-        prompt += """
-
-Conversation History:
-"""
-        for entry in conversation_history[-5:]:
-            prompt += entry + "\n"
-
-    prompt += """
-
-What is your response to this customer? Output only the JSON object."""
-
-    return prompt
-
-
-def parse_llm_response(response_text: str) -> CustomerSupportAction:
+    # Try full JSON parse
     try:
-        json_start = response_text.find("{")
-        json_end = response_text.rfind("}") + 1
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return _normalise_action(parsed)
+    except Exception:
+        pass
 
-        if json_start != -1 and json_end != 0:
-            json_str = response_text[json_start:json_end]
-            data = json.loads(json_str)
-        else:
-            data = json.loads(response_text)
+    # Try extracting first JSON object
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            parsed = json.loads(raw[start : end + 1])
+            if isinstance(parsed, dict):
+                return _normalise_action(parsed)
+        except Exception:
+            pass
 
-        action_type = data.get("action_type", "clarify")
-        if action_type not in VALID_ACTION_TYPES:
-            action_type = "clarify"
-
-        return CustomerSupportAction(
-            response=data.get("response", "I need some more information to help you."),
-            action_type=action_type,
-            amount=float(data.get("amount", 0.0)),
-            reason=data.get("reason", "Following standard procedure."),
-        )
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-        return CustomerSupportAction(
-            response="Could you please provide more details about your issue?",
-            action_type="clarify",
-            amount=0.0,
-            reason="Default clarification needed.",
-        )
+    return _default_action()
 
 
-def get_model_action(client: OpenAI, obs: Dict[str, Any]) -> CustomerSupportAction:
-    system_prompt = build_system_prompt()
-    user_prompt = build_user_prompt(obs)
+def _normalise_action(d: dict[str, Any]) -> dict[str, Any]:
+    """Ensure required fields exist and action_type is valid."""
+    action_type = str(d.get("action_type", "clarify")).strip().lower()
+    if action_type not in VALID_ACTION_TYPES:
+        action_type = "clarify"
 
     try:
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-            stream=False,
-        )
-        response_text = (completion.choices[0].message.content or "").strip()
-        return parse_llm_response(response_text)
+        amount = float(d.get("amount", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        amount = 0.0
+
+    return {
+        "response": str(d.get("response", "")).strip(),
+        "action_type": action_type,
+        "amount": amount,
+        "reason": str(d.get("reason", "")).strip(),
+    }
+
+
+def _default_action() -> dict[str, Any]:
+    return {
+        "response": "Could you please provide more details about your issue?",
+        "action_type": "clarify",
+        "amount": 0.0,
+        "reason": "Need more information to proceed.",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Prompt builder
+# ---------------------------------------------------------------------------
+
+def _prompt(obs: dict[str, Any]) -> str:
+    ticket = obs.get("ticket_info", {}) or {}
+    order = obs.get("order_info", {}) or {}
+    customer = obs.get("customer_info", {}) or {}
+    history = obs.get("conversation_history", []) or []
+
+    history_text = "\n".join(f"  - {msg}" for msg in history) if history else "  (none)"
+
+    return (
+        "You are a customer support agent. Reply with JSON only.\n"
+        "Format: {\n"
+        '  "response": "<message to customer>",\n'
+        '  "action_type": "<one of: refund, partial_refund, replace, escalate, clarify, deny>",\n'
+        '  "amount": <refund amount as float, 0 if not applicable>,\n'
+        '  "reason": "<policy justification>"\n'
+        "}\n\n"
+        "=== TICKET ===\n"
+        f"Category   : {ticket.get('issue_category', 'unknown')}\n"
+        f"Difficulty : {ticket.get('difficulty', 'medium')}\n"
+        f"Ticket ID  : {ticket.get('ticket_id', '')}\n"
+        f"Impact     : {ticket.get('impact', 'Low')}\n"
+        f"Tier       : {ticket.get('tier', 'Free')}\n\n"
+        "=== CUSTOMER MESSAGE ===\n"
+        f"{obs.get('customer_message', '')}\n\n"
+        "=== ORDER INFO ===\n"
+        f"Order ID   : {order.get('order_id', '')}\n"
+        f"Product    : {order.get('product', '')}\n"
+        f"Amount     : ${order.get('amount', 0):.2f}\n"
+        f"Date       : {order.get('date', '')}\n"
+        f"Status     : {order.get('status', '')}\n\n"
+        "=== CUSTOMER INFO ===\n"
+        f"Name       : {customer.get('name', '')}\n"
+        f"Satisfaction: {customer.get('satisfaction', 0.5)}\n\n"
+        "=== CONTEXT ===\n"
+        f"Days since purchase : {obs.get('days_since_purchase', 0)}\n"
+        f"Item condition      : {obs.get('item_condition', 'unused')}\n"
+        f"User reason         : {obs.get('user_reason', '')}\n"
+        f"Transaction status  : {obs.get('transaction_status', '')}\n"
+        f"Delivery status     : {obs.get('delivery_status', '')}\n"
+        f"Delivery delayed by : {obs.get('delivery_delayed_days', 0)} days\n"
+        f"Customer sentiment  : {obs.get('sentiment', 'Neutral')}\n"
+        f"SLA steps left      : {obs.get('sla_steps_left', 2)}\n\n"
+        "=== POLICY ===\n"
+        f"{obs.get('policy_context', '(none)')}\n\n"
+        "=== CONVERSATION HISTORY ===\n"
+        f"{history_text}\n\n"
+        "=== SCORING ===\n"
+        f"Cumulative score: {obs.get('cumulative_score', 0.0):.1f}%\n"
+        f"Total reward    : {obs.get('total_reward', 0.0):.2f}\n\n"
+        "Choose the action that best aligns with policy. "
+        "Prefer the most specific action (refund/replace/deny) over 'clarify' when policy is clear."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Score normalisation
+# ---------------------------------------------------------------------------
+
+# strict_score is imported from grading.py (re-exported here for compat)
+_strict_score = strict_score
+
+
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
+
+def run() -> int:
+    api_base_url = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+    api_key = os.getenv("API_KEY")
+    model_name = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+    env_url = os.getenv("ENV_BASE_URL", "http://127.0.0.1:8000")
+    max_tokens = 512
+
+    llm_client = (
+        OpenAI(base_url=api_base_url, api_key=api_key)
+        if OpenAI is not None and api_base_url and api_key and model_name
+        else None
+    )
+
+    # Verify the environment server is reachable before starting tasks
+    import requests as _req
+    try:
+        _req.get(f"{env_url}/health", timeout=5)
     except Exception as exc:
         print(f"[DEBUG] Model request failed: {exc}", flush=True)
         return CustomerSupportAction(

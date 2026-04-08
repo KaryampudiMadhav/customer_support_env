@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -1614,7 +1614,10 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "openai" },
+<<<<<<< HEAD
     { name = "openenv" },
+=======
+>>>>>>> c12f09e6fd274ae1690e152f3fd08a661b155ff4
     { name = "openenv-core", extra = ["core"] },
     { name = "pydantic" },
     { name = "uvicorn" },
@@ -1631,9 +1634,13 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.135.3" },
     { name = "openai", specifier = ">=1.0.0" },
+<<<<<<< HEAD
     { name = "openai", specifier = ">=2.30.0" },
     { name = "openenv", specifier = ">=0.1.13" },
     { name = "openenv-core", extras = ["core"], git = "https://github.com/meta-pytorch/OpenEnv.git" },
+=======
+    { name = "openenv-core", extras = ["core"], specifier = ">=0.2.1" },
+>>>>>>> c12f09e6fd274ae1690e152f3fd08a661b155ff4
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },

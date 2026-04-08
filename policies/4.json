@@ -1,0 +1,94 @@
+{
+  "category": "delivery",
+  "rule_priority": [
+    "edge_cases",
+    "escalation_rules",
+    "exceptions",
+    "normal_rules",
+    "default_rule"
+  ],
+
+  "required_fields": [
+    "delivery_delayed_days"
+  ],
+
+  "valid_delivery_statuses": [
+    "on_time",
+    "delayed",
+    "lost",
+    "in_transit",
+    "out_for_delivery",
+    "delivered"
+  ],
+
+  "normal_rules": [
+    {
+      "id": "R1",
+      "condition": {
+        "delivery_delayed_days": "<3"
+      },
+      "action": "apologize_and_inform",
+      "policy_reason": "Minor delay"
+    },
+    {
+      "id": "R2",
+      "condition": {
+        "delivery_delayed_days": ">=3"
+      },
+      "action": "provide_tracking_info",
+      "policy_reason": "Significant delay should first provide tracking or status information"
+    }
+  ],
+
+  "exceptions": [
+    {
+      "id": "E1",
+      "condition": {
+        "package_lost": true
+      },
+      "override_action": "initiate_escalation",
+      "policy_reason": "Lost package requires escalation"
+    }
+  ],
+
+  "edge_cases": [
+    {
+      "condition": "missing_required_fields",
+      "action": "request_clarification",
+      "policy_reason": "Required fields missing"
+    },
+    {
+      "condition": "missing_tracking_information",
+      "action": "request_clarification",
+      "policy_reason": "Tracking information unavailable"
+    },
+    {
+      "condition": "incorrect_address",
+      "action": "request_clarification",
+      "policy_reason": "Address issue"
+    },
+    {
+      "condition": "user_requests_refund_for_delay",
+      "action": "escalate",
+      "policy_reason": "Refund for delay requires manual review"
+    }
+  ],
+
+  "escalation_rules": [
+    {
+      "condition": "package_lost == true",
+      "action": "escalate",
+      "policy_reason": "Lost package requires manual handling"
+    },
+    {
+      "condition": "delivery_delayed_days >= 7",
+      "action": "escalate",
+      "policy_reason": "Extended delay requires review"
+    }
+  ],
+
+  "default_rule": {
+    "action": "apologize_and_inform",
+    "reason": "General support"
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "category": "payment",
+  "rule_priority": [
+    "edge_cases",
+    "escalation_rules",
+    "exceptions",
+    "normal_rules",
+    "default_rule"
+  ],
+
+  "required_fields": [
+    "transaction_status",
+    "transaction_id"
+  ],
+
+  "valid_transaction_statuses": [
+    "successful",
+    "failed",
+    "pending",
+    "duplicate_charge",
+    "reversed",
+    "bank_delay"
+  ],
+
+  "normal_rules": [
+    {
+      "id": "R1",
+      "condition": {
+        "duplicate_charge": true
+      },
+      "action": "issue_refund",
+      "policy_reason": "Duplicate charge should be refunded"
+    },
+    {
+      "id": "R2",
+      "condition": {
+        "payment_failed": true
+      },
+      "action": "investigate_payment",
+      "policy_reason": "Payment failed requires verification"
+    }
+  ],
+
+  "exceptions": [
+    {
+      "id": "E1",
+      "condition": {
+        "bank_delay": true
+      },
+      "override_action": "apologize_and_inform",
+      "policy_reason": "Processing delay due to bank-side issue"
+    }
+  ],
+
+  "edge_cases": [
+    {
+      "condition": "missing_required_fields",
+      "action": "request_clarification",
+      "policy_reason": "Required fields missing"
+    },
+    {
+      "condition": "missing_transaction_id",
+      "action": "request_clarification",
+      "policy_reason": "Transaction ID missing"
+    },
+    {
+      "condition": "suspicious_activity",
+      "action": "escalate",
+      "policy_reason": "Potential fraud"
+    }
+  ],
+
+  "escalation_rules": [
+    {
+      "condition": "conflicting_information",
+      "action": "escalate",
+      "policy_reason": "Conflicting payment details"
+    },
+    {
+      "condition": "suspicious_activity == true",
+      "action": "escalate",
+      "policy_reason": "Potential fraud requires manual review"
+    }
+  ],
+
+  "default_rule": {
+    "action": "investigate_payment",
+    "reason": "Needs verification"
+  }
+}

@@ -1,0 +1,122 @@
+{
+  "category": "replacement",
+  "rule_priority": [
+    "edge_cases",
+    "escalation_rules",
+    "exceptions",
+    "normal_rules",
+    "default_rule"
+  ],
+
+  "required_fields": [
+    "user_reason",
+    "order_id",
+    "days_since_purchase"
+  ],
+
+  "valid_user_reasons": [
+    "item_damaged",
+    "wrong_item",
+    "product_defect",
+    "not_working",
+    "missing_parts"
+  ],
+
+  "normal_rules": [
+    {
+      "id": "R1",
+      "condition": {
+        "user_reason": "item_damaged",
+        "days_since_purchase": "<=10"
+      },
+      "action": "initiate_replacement",
+      "policy_reason": "Damaged item within replacement window"
+    },
+    {
+      "id": "R2",
+      "condition": {
+        "user_reason": "wrong_item",
+        "days_since_purchase": "<=10"
+      },
+      "action": "initiate_replacement",
+      "policy_reason": "Wrong item delivered within replacement window"
+    },
+    {
+      "id": "R3",
+      "condition": {
+        "user_reason": "not_working",
+        "days_since_purchase": "<=10"
+      },
+      "action": "initiate_replacement",
+      "policy_reason": "Non-working product eligible within window"
+    },
+    {
+      "id": "R4",
+      "condition": {
+        "days_since_purchase": ">10"
+      },
+      "action": "deny_replacement",
+      "policy_reason": "Replacement request outside allowed time window"
+    }
+  ],
+
+  "exceptions": [
+    {
+      "id": "E1",
+      "condition": {
+        "user_reason": "product_defect"
+      },
+      "override_action": "initiate_replacement",
+      "policy_reason": "Manufacturing defect allows replacement"
+    },
+    {
+      "id": "E2",
+      "condition": {
+        "user_reason": "missing_parts"
+      },
+      "override_action": "initiate_replacement",
+      "policy_reason": "Missing parts are eligible for replacement"
+    }
+  ],
+
+  "edge_cases": [
+    {
+      "condition": "missing_required_fields",
+      "action": "request_clarification",
+      "policy_reason": "Required fields missing"
+    },
+    {
+      "condition": "user_reason not in valid_user_reasons",
+      "action": "request_clarification",
+      "policy_reason": "Invalid or unclear reason"
+    },
+    {
+      "condition": "missing_order_id",
+      "action": "request_clarification",
+      "policy_reason": "Order ID required"
+    },
+    {
+      "condition": "multiple_replacements_requested",
+      "action": "escalate",
+      "policy_reason": "Repeated replacement requests require manual review"
+    },
+    {
+      "condition": "unclear_issue_description",
+      "action": "request_clarification",
+      "policy_reason": "Issue not clearly described"
+    }
+  ],
+
+  "escalation_rules": [
+    {
+      "condition": "conflicting_information",
+      "action": "escalate",
+      "policy_reason": "Conflicting case details"
+    }
+  ],
+
+  "default_rule": {
+    "action": "deny_replacement",
+    "reason": "Replacement criteria not met"
+  }
+}

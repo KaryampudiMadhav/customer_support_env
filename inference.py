@@ -15,7 +15,10 @@ import os
 import re
 from typing import Any
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ModuleNotFoundError:
+    OpenAI = None  # type: ignore[assignment,misc]  # graceful fallback; llm_client will be None
 
 try:
     from client import CustomerSupportEnv
@@ -180,7 +183,7 @@ def run() -> int:
 
     llm_client = (
         OpenAI(base_url=api_base_url, api_key=api_key)
-        if api_base_url and api_key and model_name
+        if OpenAI is not None and api_base_url and api_key and model_name
         else None
     )
 

@@ -65,36 +65,19 @@ def get_env() -> CustomerSupportEnvironment:
     return _env
 
 
-@app.post("/reset", response_model=CustomerSupportObservation)
+@app.post("/reset")
 async def reset_env():
-    """Reset the environment."""
-    return get_env().reset()
+  """Reset the environment. Return wrapped data for OpenEnv client compatibility."""
+  obs = get_env().reset()
+  return {"data": {"observation": _observation_to_dict(obs)}}
 
 
 @app.post("/step")
 async def step_env(action: CustomerSupportAction):
-    """Execute a step in the environment."""
-    obs = get_env().step(action)
-    env = get_env()
-    return {
-        "customer_message": obs.customer_message,
-        "ticket_id": obs.ticket_info.ticket_id,
-        "phase": obs.phase,
-        "done": obs.done,
-        "reward": obs.reward,
-        "total_reward": obs.total_reward,
-        "action_type": action.action_type,
-        "sla_steps_left": obs.sla_steps_left,
-        "action_history": [
-            {
-                "step": entry.step,
-                "action_type": entry.action_type,
-                "description": entry.description,
-                "reward": entry.reward
-            }
-            for entry in obs.action_history
-        ],
-    }
+  """Execute a step in the environment and return wrapped observation for client."""
+  obs = get_env().step(action)
+  obs_dict = _observation_to_dict(obs)
+  return {"data": {"observation": obs_dict}, "reward": obs.reward, "done": obs.done}
 
 
 @app.get("/state")
@@ -147,30 +130,30 @@ async def websocket_endpoint(websocket: WebSocket):
             msg_type = data.get("type")
 
             if msg_type == "reset":
-                category = data.get("category")
-                observation = env.reset(category=category)
-                await websocket.send_json({
-                    "type": "observation",
-                    "data": _observation_to_dict(observation),
-                    "reward": 0.0,
-                    "done": False,
-                })
+              category = data.get("category")
+              observation = env.reset(category=category)
+              await websocket.send_json({
+                "type": "observation",
+                "data": {"observation": _observation_to_dict(observation)},
+                "reward": 0.0,
+                "done": False,
+              })
 
             elif msg_type == "step":
-                action_data = data.get("action", {})
-                action = CustomerSupportAction(
-                    response=action_data.get("response", ""),
-                    action_type=action_data.get("action_type", "clarify"),
-                    amount=action_data.get("amount", 0.0),
-                    reason=action_data.get("reason", ""),
-                )
-                observation = env.step(action)
-                await websocket.send_json({
-                    "type": "observation",
-                    "data": _observation_to_dict(observation),
-                    "reward": observation.reward,
-                    "done": observation.done,
-                })
+              action_data = data.get("action", {})
+              action = CustomerSupportAction(
+                response=action_data.get("response", ""),
+                action_type=action_data.get("action_type", "clarify"),
+                amount=action_data.get("amount", 0.0),
+                reason=action_data.get("reason", ""),
+              )
+              observation = env.step(action)
+              await websocket.send_json({
+                "type": "observation",
+                "data": {"observation": _observation_to_dict(observation)},
+                "reward": observation.reward,
+                "done": observation.done,
+              })
 
             elif msg_type == "state":
                 await websocket.send_json({
@@ -407,6 +390,13 @@ UI_HTML = """<!DOCTYPE html>
             <div>
               <label for="actionType">Action Type</label>
               <select id="actionType">
+                <option value="clarify">clarify</option>
+                <option value="refund">refund</option>
+                <option value="partial_refund">partial_refund</option>
+                <option value="replace">replace</option>
+                <option value="escalate">escalate</option>
+                <option value="deny">deny</option>
+              </select>
                 <option value="clarify">clarify</option>
                 <option value="refund">refund</option>
                 <option value="partial_refund">partial_refund</option>

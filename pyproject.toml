@@ -30,6 +30,7 @@ dependencies = [
     # "smolagents>=1.22.0,<2",
     "pydantic>=2.12.5",
     "uvicorn>=0.44.0",
+    "openai>=1.0.0",
     "websockets>=16.0",
 ]
 

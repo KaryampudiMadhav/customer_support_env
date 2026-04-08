@@ -173,22 +173,21 @@ _strict_score = strict_score
 
 def run() -> int:
     api_base_url = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-    api_key = os.getenv("API_KEY")
+    api_key = os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY", "dummy_key")
     model_name = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
     env_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
     max_tokens = 512
 
     llm_client = (
         OpenAI(base_url=api_base_url, api_key=api_key)
-        if api_base_url and api_key and model_name
+        if api_base_url and model_name
         else None
     )
 
-    # One persistent WebSocket connection for all tasks
+    # One persistent WebSocket connection for all tasks (use sync wrapper)
     try:
         env = CustomerSupportEnv(base_url=env_url)
         sync_env = env.sync()
-        sync_env.connect()
     except Exception as exc:
         connect_error = str(exc).replace("\n", " ")
         for task in TASKS:
@@ -197,7 +196,12 @@ def run() -> int:
             print("[END] success=false steps=1 score=0.01 rewards=-0.10")
         return 0
 
-    with sync_env:
+    # Use plain HTTP requests to interact with the environment server (avoids
+    # websocket transport quirks in the upstream openenv client).
+    import requests
+
+    base = env_url.rstrip("/")
+    with requests.Session() as session:
         for task in TASKS:
             rewards: list[float] = []
             success = False
@@ -208,9 +212,11 @@ def run() -> int:
             print(f"[START] task={task} env=customer_support model={model_name}")
 
             try:
-                # Reset with the ticket category for this task
-                obs_result = sync_env.reset(category=task)
-                obs_obj = obs_result.observation.model_dump()
+                # Reset via HTTP
+                resp = session.post(f"{base}/reset", json={"category": task}, timeout=10)
+                data = resp.json()
+                obs_obj = data.get("data", {}).get("observation") if "data" in data else data
+                obs_obj = obs_obj or {}
 
                 # Capture baseline values for grading
                 customer_info = obs_obj.get("customer_info", {}) or {}
@@ -231,36 +237,33 @@ def run() -> int:
                                 temperature=0.2,
                                 max_tokens=max_tokens,
                                 messages=[  # type: ignore[arg-type]
-                                    {
-                                        "role": "system",
-                                        "content": "Return strict JSON only. No markdown, no prose.",
-                                    },
-                                    {
-                                        "role": "user",
-                                        "content": _prompt(obs_obj),
-                                    },
+                                    {"role": "system", "content": "Return strict JSON only. No markdown, no prose."},
+                                    {"role": "user", "content": _prompt(obs_obj)},
                                 ],
                             )
                             response_text = completion.choices[0].message.content or ""
                             action_dict = parse_llm_response(response_text)
+                            # print(f"[DEBUG] RAW LLM OUTPUT:\n{response_text}\n[DEBUG] PARSED:\n{action_dict}")
                         except Exception as exc:
                             action_error = str(exc).replace("\n", " ")
 
                     action_type = action_dict["action_type"]
-                    action = CustomerSupportAction(
-                        response=action_dict["response"],
-                        action_type=action_type,
-                        amount=action_dict["amount"],
-                        reason=action_dict["reason"],
-                    )
+                    action_payload = {
+                        "response": action_dict["response"],
+                        "action_type": action_type,
+                        "amount": float(action_dict.get("amount", 0.0) or 0.0),
+                        "reason": action_dict.get("reason", ""),
+                    }
 
                     try:
-                        step_result = sync_env.step(action)
-                        obs_obj = step_result.observation.model_dump()
-                        env_reward = float(obs_obj.get("reward", 0.0) or 0.0)
+                        step_resp = session.post(f"{base}/step", json=action_payload, timeout=10)
+                        step_data = step_resp.json()
+                        obs_obj = step_data.get("data", {}).get("observation") if "data" in step_data else step_data
+                        obs_obj = obs_obj or {}
+                        env_reward = float(step_data.get("reward", 0.0) or 0.0)
                         shaping = partial_reward(prev_obs_obj, obs_obj, action_type)
                         reward = env_reward + shaping
-                        done = bool(obs_obj.get("done", False))
+                        done = bool(step_data.get("done", False))
                         err = action_error
                     except Exception as exc:
                         reward = -0.1
@@ -272,10 +275,7 @@ def run() -> int:
                     rewards.append(reward)
                     done_str = "true" if done else "false"
                     err_str = "null" if err is None else err
-                    print(
-                        f"[STEP] step={step} action={action_type} reward={reward:.2f} "
-                        f"done={done_str} error={err_str}"
-                    )
+                    print(f"[STEP] step={step} action={action_type} reward={reward:.2f} done={done_str} error={err_str}")
 
                     if done:
                         success = reward > 0
@@ -285,14 +285,10 @@ def run() -> int:
                 steps_used = 1
                 rewards.append(-0.1)
                 error_text = str(exc).replace("\n", " ")
-                print(
-                    "[STEP] step=1 action=clarify reward=-0.10 done=true error=" + error_text
-                )
+                print("[STEP] step=1 action=clarify reward=-0.10 done=true error=" + error_text)
                 action_dict = _default_action()
                 obs_obj = {}
             finally:
-                # Score: prefer final_grade when ep ended properly; fall back to
-                # cumulative_score from the env, then clamped sum of rewards.
                 try:
                     last_action = action_dict.get("action_type", "clarify")
                     score = final_grade(
@@ -310,10 +306,7 @@ def run() -> int:
                         score = _strict_score(sum(rewards))
 
                 rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-                print(
-                    f"[END] success={'true' if success else 'false'} steps={steps_used} "
-                    f"score={score:.2f} rewards={rewards_str}"
-                )
+                print(f"[END] success={'true' if success else 'false'} steps={steps_used} score={score:.2f} rewards={rewards_str}")
 
     return 0
 

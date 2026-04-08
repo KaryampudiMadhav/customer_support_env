@@ -7,6 +7,8 @@
 """Customer Support Environment Client."""
 
 from typing import Dict
+import json
+from pathlib import Path
 
 from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
@@ -86,6 +88,19 @@ class CustomerSupportEnv(
         """
         # Extract observation data from payload (handling WebSocket 'data' wrapping)
         obs_data = payload.get("data", payload)
+
+        # DEBUG: dump raw payload for troubleshooting
+        try:
+            Path("d:/customer_support_env/payload_debug.json").write_text(json.dumps(payload, indent=2))
+        except Exception:
+            pass
+
+        obs_data = payload.get("observation", {})
+
+        ticket_data = obs_data.get("ticket_info", {})
+        order_data = obs_data.get("order_info", {})
+        customer_data = obs_data.get("customer_info", {})
+
 
         observation = CustomerSupportObservation(
             customer_message=obs_data.get("customer_message", ""),

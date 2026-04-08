@@ -1620,6 +1620,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.135.3" },
+    { name = "openai", specifier = ">=1.0.0" },
     { name = "openai", specifier = ">=2.30.0" },
     { name = "openenv-core", extras = ["core"], specifier = ">=0.2.1" },
     { name = "pydantic", specifier = ">=2.12.5" },

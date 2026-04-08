@@ -50,3 +50,6 @@ server = "customerSupportEnv.server.app:main"
 include-package-data = true
 packages = ["customerSupportEnv", "customerSupportEnv.server"]
 package-dir = { "customerSupportEnv" = ".", "customerSupportEnv.server" = "server" }
+
+[tool.uv.sources]
+openenv-core = { git = "https://github.com/meta-pytorch/OpenEnv.git" }

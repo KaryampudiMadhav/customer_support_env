@@ -28,23 +28,25 @@ Usage:
     python -m server.app --port 8000
 """
 
-from typing import Any, Dict, Optional
 import uuid
+from typing import Any, Dict, Optional
 
+import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-import uvicorn
 
 try:
+    from ..models import (
+        CustomerSupportAction,
+        CustomerSupportObservation,
+    )
+    from customerSupportEnv_environment import (
+        CustomerSupportEnvironment,
+    )
+except ImportError:
     from models import CustomerSupportAction, CustomerSupportObservation
-except ImportError:
-    from ..models import CustomerSupportAction, CustomerSupportObservation
-
-try:
     from server.customerSupportEnv_environment import CustomerSupportEnvironment
-except ImportError:
-    from .customerSupportEnv_environment import CustomerSupportEnvironment
 
 
 app = FastAPI(
@@ -67,17 +69,17 @@ def get_env() -> CustomerSupportEnvironment:
 
 @app.post("/reset")
 async def reset_env():
-  """Reset the environment. Return wrapped data for OpenEnv client compatibility."""
-  obs = get_env().reset()
-  return {"data": {"observation": _observation_to_dict(obs)}}
+    """Reset the environment. Return wrapped data for OpenEnv client compatibility."""
+    obs = get_env().reset()
+    return {"data": {"observation": _observation_to_dict(obs)}}
 
 
 @app.post("/step")
 async def step_env(action: CustomerSupportAction):
-  """Execute a step in the environment and return wrapped observation for client."""
-  obs = get_env().step(action)
-  obs_dict = _observation_to_dict(obs)
-  return {"data": {"observation": obs_dict}, "reward": obs.reward, "done": obs.done}
+    """Execute a step in the environment and return wrapped observation for client."""
+    obs = get_env().step(action)
+    obs_dict = _observation_to_dict(obs)
+    return {"data": {"observation": obs_dict}, "reward": obs.reward, "done": obs.done}
 
 
 @app.get("/state")
@@ -118,11 +120,13 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         # Send connection confirmation
-        await websocket.send_json({
-            "type": "connected",
-            "episode_id": env.state.episode_id,
-            "session_id": session_id,
-        })
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "episode_id": env.state.episode_id,
+                "session_id": session_id,
+            }
+        )
 
         while True:
             # Receive message from client
@@ -130,44 +134,51 @@ async def websocket_endpoint(websocket: WebSocket):
             msg_type = data.get("type")
 
             if msg_type == "reset":
-              category = data.get("category")
-              observation = env.reset(category=category)
-              await websocket.send_json({
-                "type": "observation",
-                "data": {"observation": _observation_to_dict(observation)},
-                "reward": 0.0,
-                "done": False,
-              })
+                category = data.get("category")
+                observation = env.reset(category=category)
+                await websocket.send_json(
+                    {
+                        "type": "observation",
+                        "data": {"observation": _observation_to_dict(observation)},
+                        "reward": 0.0,
+                        "done": False,
+                    }
+                )
 
             elif msg_type == "step":
-              action_data = data.get("action", {})
-              action = CustomerSupportAction(
-                response=action_data.get("response", ""),
-                action_type=action_data.get("action_type", "clarify"),
-                amount=action_data.get("amount", 0.0),
-                reason=action_data.get("reason", ""),
-              )
-              observation = env.step(action)
-              await websocket.send_json({
-                "type": "observation",
-                "data": {"observation": _observation_to_dict(observation)},
-                "reward": observation.reward,
-                "done": observation.done,
-              })
+                action_data = data.get("action", {})
+                action = CustomerSupportAction(
+                    response=action_data.get("response", ""),
+                    action_type=action_data.get("action_type", "clarify"),
+                    amount=action_data.get("amount", 0.0),
+                    reason=action_data.get("reason", ""),
+                )
+                observation = env.step(action)
+                await websocket.send_json(
+                    {
+                        "type": "observation",
+                        "data": {"observation": _observation_to_dict(observation)},
+                        "reward": observation.reward,
+                        "done": observation.done,
+                    }
+                )
 
             elif msg_type == "state":
-                await websocket.send_json({
-                    "type": "state",
-                    "episode_id": env.state.episode_id,
-                    "step_count": env.state.step_count,
-                })
-
+                await websocket.send_json(
+                    {
+                        "type": "state",
+                        "episode_id": env.state.episode_id,
+                        "step_count": env.state.step_count,
+                    }
+                )
 
             else:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": f"Unknown message type: {msg_type}",
-                })
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": f"Unknown message type: {msg_type}",
+                    }
+                )
 
     except WebSocketDisconnect:
         pass
@@ -178,6 +189,7 @@ async def websocket_endpoint(websocket: WebSocket):
 # ============================================================================
 # Helpers
 # ============================================================================
+
 
 def _observation_to_dict(obs: CustomerSupportObservation) -> Dict[str, Any]:
     """Convert observation to dictionary."""
@@ -222,10 +234,10 @@ def _observation_to_dict(obs: CustomerSupportObservation) -> Dict[str, Any]:
                 "step": entry.step,
                 "action_type": entry.action_type,
                 "description": entry.description,
-                "reward": entry.reward
+                "reward": entry.reward,
             }
             for entry in obs.action_history
-        ]
+        ],
     }
 
 
@@ -513,15 +525,15 @@ UI_HTML = """<!DOCTYPE html>
     const obsObj = (data.data && data.data.observation) ? data.data.observation : data;
     const reward = parseFloat(data.reward !== undefined ? data.reward : (obsObj.reward || 0));
     mLast.textContent = reward.toFixed(2);
-    
+
     let currentTotal = data.total_reward !== undefined ? data.total_reward : obsObj.total_reward;
     totalReward = currentTotal !== undefined ? currentTotal : (totalReward + reward);
     mTotal.textContent = totalReward.toFixed(2);
-    
+
     const isDone = data.done !== undefined ? data.done : (obsObj.done || false);
     mStat.textContent = isDone ? "DONE" : "ACTIVE";
     mStat.style.color = isDone ? "var(--card-green)" : "var(--accent)";
-    
+
     renderTicket(obsObj);
     renderTimeline(obsObj);
   }
@@ -601,12 +613,15 @@ def ui() -> HTMLResponse:
 # Main
 # ============================================================================
 
+
 def main():
     """Run the server. Entry point for openenv multi-mode deployment."""
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
+
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--host", type=str, default="0.0.0.0")

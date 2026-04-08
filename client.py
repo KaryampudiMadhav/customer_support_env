@@ -6,18 +6,32 @@
 
 """Customer Support Environment Client."""
 
-from typing import Dict
 import json
 from pathlib import Path
+from typing import Dict
 
 from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
 try:
-    from .models import CustomerSupportAction, CustomerSupportObservation
+    from customerSupportEnv.models import (
+        ActionHistoryEntry,
+        CustomerInfo,
+        CustomerSupportAction,
+        CustomerSupportObservation,
+        OrderInfo,
+        TicketInfo,
+    )
 except ImportError:
-    from models import CustomerSupportAction, CustomerSupportObservation  # type: ignore[no-redef]
+    from models import (
+        ActionHistoryEntry,
+        CustomerInfo,
+        CustomerSupportAction,
+        CustomerSupportObservation,
+        OrderInfo,
+        TicketInfo,
+    )
 
 
 class CustomerSupportEnv(
@@ -86,27 +100,33 @@ class CustomerSupportEnv(
         Returns:
             StepResult with CustomerSupportObservation
         """
-        # Extract observation data from payload (handling WebSocket 'data' wrapping)
-        obs_data = payload.get("data", payload)
+        # Server returns: {"data": {"observation": {...}}}
+        # We need to extract the observation dict from inside data.observation
+        wrapped_data = payload.get("data", payload)
+        obs_data = wrapped_data.get("observation", wrapped_data)
 
         # DEBUG: dump raw payload for troubleshooting
         try:
-            Path("d:/customer_support_env/payload_debug.json").write_text(json.dumps(payload, indent=2))
+            Path("d:/customer_support_env/payload_debug.json").write_text(
+                json.dumps(payload, indent=2)
+            )
         except Exception:
             pass
 
-        obs_data = payload.get("observation", {})
+        # Parse nested models from the observation data
+        ticket_dict = obs_data.get("ticket_info", {})
+        order_dict = obs_data.get("order_info", {})
+        customer_dict = obs_data.get("customer_info", {})
+        action_history_list = obs_data.get("action_history", [])
 
-        ticket_data = obs_data.get("ticket_info", {})
-        order_data = obs_data.get("order_info", {})
-        customer_data = obs_data.get("customer_info", {})
-
+        # Build action history entries
+        action_history = [ActionHistoryEntry(**entry) for entry in action_history_list]
 
         observation = CustomerSupportObservation(
             customer_message=obs_data.get("customer_message", ""),
-            ticket_info=obs_data.get("ticket_info", {}),
-            order_info=obs_data.get("order_info", {}),
-            customer_info=obs_data.get("customer_info", {}),
+            ticket_info=TicketInfo(**ticket_dict),
+            order_info=OrderInfo(**order_dict),
+            customer_info=CustomerInfo(**customer_dict),
             policy_context=obs_data.get("policy_context", ""),
             conversation_history=obs_data.get("conversation_history", []),
             days_since_purchase=obs_data.get("days_since_purchase", 0),
@@ -121,7 +141,7 @@ class CustomerSupportEnv(
             sla_steps_left=obs_data.get("sla_steps_left", 2),
             total_reward=obs_data.get("total_reward", 0.0),
             cumulative_score=obs_data.get("cumulative_score", 0.0),
-            action_history=obs_data.get("action_history", []),
+            action_history=action_history,
             done=payload.get("done", False),
             reward=payload.get("reward"),
             metadata=obs_data.get("metadata", {}),

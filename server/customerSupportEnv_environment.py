@@ -13,64 +13,115 @@ with policy evaluation across different difficulty levels.
 
 import random
 from datetime import datetime, timedelta
-from typing import Any, Dict , Optional
+from typing import Any, Dict, Optional
 
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 
 try:
-    from ..models import (
+    from customerSupportEnv.grading import final_grade
+    from customerSupportEnv.models import (
+        VALID_ACTION_TYPES,
+        ActionHistoryEntry,
+        CustomerInfo,
         CustomerSupportAction,
         CustomerSupportObservation,
         OrderInfo,
         TicketInfo,
-        CustomerInfo,
-        VALID_ACTION_TYPES,
-        ActionHistoryEntry,
     )
-    from ..grading import final_grade
 except ImportError:
+    from grading import final_grade
     from models import (
+        VALID_ACTION_TYPES,
+        ActionHistoryEntry,
+        CustomerInfo,
         CustomerSupportAction,
         CustomerSupportObservation,
         OrderInfo,
         TicketInfo,
-        CustomerInfo,
-        VALID_ACTION_TYPES,
-        ActionHistoryEntry,
     )
-    from grading import final_grade
 
 
 DEFAULT_POLICIES = {
     "refund": {
         "category": "refund",
-        "valid_user_reasons": ["item_damaged", "wrong_item", "changed_mind", "late_delivery", "defective_item"],
+        "valid_user_reasons": [
+            "item_damaged",
+            "wrong_item",
+            "changed_mind",
+            "late_delivery",
+            "defective_item",
+        ],
         "normal_rules": [
-            {"id": "R1", "condition": {"days_since_purchase": "<=7", "item_condition": "unused"}, "action": "approve_refund"},
-            {"id": "R2", "condition": {"days_since_purchase": ">7"}, "action": "deny_refund"},
-            {"id": "R3", "condition": {"item_condition": "used"}, "action": "deny_refund"},
+            {
+                "id": "R1",
+                "condition": {"days_since_purchase": "<=7", "item_condition": "unused"},
+                "action": "approve_refund",
+            },
+            {
+                "id": "R2",
+                "condition": {"days_since_purchase": ">7"},
+                "action": "deny_refund",
+            },
+            {
+                "id": "R3",
+                "condition": {"item_condition": "used"},
+                "action": "deny_refund",
+            },
         ],
         "exceptions": [
-            {"condition": {"user_reason": "item_damaged"}, "override_action": "offer_resolution_options"},
-            {"condition": {"user_reason": "wrong_item"}, "override_action": "offer_resolution_options"},
+            {
+                "condition": {"user_reason": "item_damaged"},
+                "override_action": "offer_resolution_options",
+            },
+            {
+                "condition": {"user_reason": "wrong_item"},
+                "override_action": "offer_resolution_options",
+            },
         ],
     },
     "replacement": {
         "category": "replacement",
-        "valid_user_reasons": ["item_damaged", "wrong_item", "product_defect", "not_working", "missing_parts"],
+        "valid_user_reasons": [
+            "item_damaged",
+            "wrong_item",
+            "product_defect",
+            "not_working",
+            "missing_parts",
+        ],
         "normal_rules": [
-            {"id": "R1", "condition": {"days_since_purchase": "<=10"}, "action": "initiate_replacement"},
-            {"id": "R2", "condition": {"days_since_purchase": ">10"}, "action": "deny_replacement"},
+            {
+                "id": "R1",
+                "condition": {"days_since_purchase": "<=10"},
+                "action": "initiate_replacement",
+            },
+            {
+                "id": "R2",
+                "condition": {"days_since_purchase": ">10"},
+                "action": "deny_replacement",
+            },
         ],
         "exceptions": [
-            {"condition": {"user_reason": "product_defect"}, "override_action": "initiate_replacement"},
-            {"condition": {"user_reason": "missing_parts"}, "override_action": "initiate_replacement"},
+            {
+                "condition": {"user_reason": "product_defect"},
+                "override_action": "initiate_replacement",
+            },
+            {
+                "condition": {"user_reason": "missing_parts"},
+                "override_action": "initiate_replacement",
+            },
         ],
     },
     "payment": {
         "category": "payment",
-        "valid_transaction_statuses": ["successful", "failed", "pending", "duplicate_charge", "reversed", "bank_delay"],
+        "valid_transaction_statuses": [
+            "successful",
+            "failed",
+            "pending",
+            "duplicate_charge",
+            "reversed",
+            "bank_delay",
+        ],
         "normal_rules": [
             {"condition": {"duplicate_charge": True}, "action": "issue_refund"},
             {"condition": {"payment_failed": True}, "action": "investigate_payment"},
@@ -81,10 +132,23 @@ DEFAULT_POLICIES = {
     },
     "delivery": {
         "category": "delivery",
-        "valid_delivery_statuses": ["on_time", "delayed", "lost", "in_transit", "out_for_delivery", "delivered"],
+        "valid_delivery_statuses": [
+            "on_time",
+            "delayed",
+            "lost",
+            "in_transit",
+            "out_for_delivery",
+            "delivered",
+        ],
         "normal_rules": [
-            {"condition": {"delivery_delayed_days": "<3"}, "action": "apologize_and_inform"},
-            {"condition": {"delivery_delayed_days": ">=3"}, "action": "provide_tracking_info"},
+            {
+                "condition": {"delivery_delayed_days": "<3"},
+                "action": "apologize_and_inform",
+            },
+            {
+                "condition": {"delivery_delayed_days": ">=3"},
+                "action": "provide_tracking_info",
+            },
         ],
     },
 }
@@ -143,7 +207,7 @@ class CustomerSupportEnvironment(Environment):
         self,
         seed: Optional[int] = None,
         episode_id: Optional[str] = None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> CustomerSupportObservation:
         """Reset the environment with a new random ticket."""
         import uuid
@@ -153,9 +217,13 @@ class CustomerSupportEnvironment(Environment):
         self._total_reward = 0.0
         self._max_possible_reward = 0.0
         self._action_history = []
-        self._current_ticket = self._generate_random_ticket(category=kwargs.get("category"))
+        self._current_ticket = self._generate_random_ticket(
+            category=kwargs.get("category")
+        )
         self._rng = random.Random(self._state.episode_id)
-        self._baseline_satisfaction = self._current_ticket.get("customer_info", {}).get("satisfaction", 0.5)
+        self._baseline_satisfaction = self._current_ticket.get("customer_info", {}).get(
+            "satisfaction", 0.5
+        )
 
         return self.get_observation()
 
@@ -177,9 +245,16 @@ class CustomerSupportEnvironment(Environment):
     def _generate_refund_ticket(self) -> Dict[str, Any]:
         """Generate a refund ticket."""
         policy = self._policies.get("refund", {})
-        valid_reasons = policy.get("valid_user_reasons", [
-            "item_damaged", "wrong_item", "changed_mind", "late_delivery", "defective_item"
-        ])
+        valid_reasons = policy.get(
+            "valid_user_reasons",
+            [
+                "item_damaged",
+                "wrong_item",
+                "changed_mind",
+                "late_delivery",
+                "defective_item",
+            ],
+        )
         user_reason = self._rng.choice(valid_reasons)
 
         days_since_purchase = self._rng.randint(1, 35)
@@ -200,12 +275,16 @@ class CustomerSupportEnvironment(Environment):
                 "order_id": f"ORD-{self._rng.randint(10000, 999999)}",
                 "amount": order_amount,
                 "date": order_date.strftime("%Y-%m-%d"),
-                "product": self._rng.choice(["Laptop", "Headphones", "Watch", "Camera", "Phone"]),
+                "product": self._rng.choice(
+                    ["Laptop", "Headphones", "Watch", "Camera", "Phone"]
+                ),
                 "status": "delivered",
             },
             "customer_info": {
                 "customer_id": f"CUST-{self._rng.randint(100, 999)}",
-                "name": self._rng.choice(["Alice Johnson", "Bob Smith", "Carol White", "David Brown"]),
+                "name": self._rng.choice(
+                    ["Alice Johnson", "Bob Smith", "Carol White", "David Brown"]
+                ),
                 "email": f"customer{self._rng.randint(1, 100)}@example.com",
                 "satisfaction": round(self._rng.uniform(0.3, 0.9), 2),
             },
@@ -223,9 +302,16 @@ class CustomerSupportEnvironment(Environment):
     def _generate_replacement_ticket(self) -> Dict[str, Any]:
         """Generate a replacement ticket."""
         policy = self._policies.get("replacement", {})
-        valid_reasons = policy.get("valid_user_reasons", [
-            "item_damaged", "wrong_item", "product_defect", "not_working", "missing_parts"
-        ])
+        valid_reasons = policy.get(
+            "valid_user_reasons",
+            [
+                "item_damaged",
+                "wrong_item",
+                "product_defect",
+                "not_working",
+                "missing_parts",
+            ],
+        )
         user_reason = self._rng.choice(valid_reasons)
 
         days_since_purchase = self._rng.randint(1, 15)
@@ -240,12 +326,16 @@ class CustomerSupportEnvironment(Environment):
                 "order_id": f"ORD-{self._rng.randint(10000, 999999)}",
                 "amount": round(self._rng.uniform(50, 800), 2),
                 "date": order_date.strftime("%Y-%m-%d"),
-                "product": self._rng.choice(["Laptop", "Phone", "Tablet", "Watch", "Speaker"]),
+                "product": self._rng.choice(
+                    ["Laptop", "Phone", "Tablet", "Watch", "Speaker"]
+                ),
                 "status": "delivered",
             },
             "customer_info": {
                 "customer_id": f"CUST-{self._rng.randint(100, 999)}",
-                "name": self._rng.choice(["Alice Johnson", "Bob Smith", "Carol White", "David Brown"]),
+                "name": self._rng.choice(
+                    ["Alice Johnson", "Bob Smith", "Carol White", "David Brown"]
+                ),
                 "email": f"customer{self._rng.randint(1, 100)}@example.com",
                 "satisfaction": round(self._rng.uniform(0.3, 0.9), 2),
             },
@@ -262,9 +352,17 @@ class CustomerSupportEnvironment(Environment):
     def _generate_payment_ticket(self) -> Dict[str, Any]:
         """Generate a payment ticket."""
         policy = self._policies.get("payment", {})
-        valid_statuses = policy.get("valid_transaction_statuses", [
-            "successful", "failed", "pending", "duplicate_charge", "reversed", "bank_delay"
-        ])
+        valid_statuses = policy.get(
+            "valid_transaction_statuses",
+            [
+                "successful",
+                "failed",
+                "pending",
+                "duplicate_charge",
+                "reversed",
+                "bank_delay",
+            ],
+        )
         transaction_status = self._rng.choice(valid_statuses)
 
         return {
@@ -276,12 +374,16 @@ class CustomerSupportEnvironment(Environment):
                 "order_id": f"ORD-{self._rng.randint(10000, 99999)}",
                 "amount": round(self._rng.uniform(20, 300), 2),
                 "date": datetime.now().strftime("%Y-%m-%d"),
-                "product": self._rng.choice(["Subscription", "Digital Goods", "Service"]),
+                "product": self._rng.choice(
+                    ["Subscription", "Digital Goods", "Service"]
+                ),
                 "status": "paid",
             },
             "customer_info": {
                 "customer_id": f"CUST-{self._rng.randint(100, 999)}",
-                "name": self._rng.choice(["Alice Johnson", "Bob Smith", "Carol White", "David Brown"]),
+                "name": self._rng.choice(
+                    ["Alice Johnson", "Bob Smith", "Carol White", "David Brown"]
+                ),
                 "email": f"customer{self._rng.randint(1, 100)}@example.com",
                 "satisfaction": round(self._rng.uniform(0.3, 0.9), 2),
             },
@@ -298,9 +400,17 @@ class CustomerSupportEnvironment(Environment):
     def _generate_delivery_ticket(self) -> Dict[str, Any]:
         """Generate a delivery ticket."""
         policy = self._policies.get("delivery", {})
-        valid_statuses = policy.get("valid_delivery_statuses", [
-            "on_time", "delayed", "lost", "in_transit", "out_for_delivery", "delivered"
-        ])
+        valid_statuses = policy.get(
+            "valid_delivery_statuses",
+            [
+                "on_time",
+                "delayed",
+                "lost",
+                "in_transit",
+                "out_for_delivery",
+                "delivered",
+            ],
+        )
         delivery_status = self._rng.choice(valid_statuses)
 
         delayed_days = self._rng.randint(0, 10)
@@ -319,7 +429,9 @@ class CustomerSupportEnvironment(Environment):
             },
             "customer_info": {
                 "customer_id": f"CUST-{self._rng.randint(100, 999)}",
-                "name": self._rng.choice(["Alice Johnson", "Bob Smith", "Carol White", "David Brown"]),
+                "name": self._rng.choice(
+                    ["Alice Johnson", "Bob Smith", "Carol White", "David Brown"]
+                ),
                 "email": f"customer{self._rng.randint(1, 100)}@example.com",
                 "satisfaction": round(self._rng.uniform(0.3, 0.9), 2),
             },
@@ -382,8 +494,15 @@ class CustomerSupportEnvironment(Environment):
             phase=ticket.get("phase", "Unassigned"),
             sla_steps_left=ticket.get("sla_steps_left", 2),
             total_reward=round(self._total_reward, 2),
-            cumulative_score=round((self._total_reward / self._max_possible_reward * 100) if self._max_possible_reward > 0 else 0, 2),
-            action_history=[ActionHistoryEntry(**entry) for entry in self._action_history],
+            cumulative_score=round(
+                (self._total_reward / self._max_possible_reward * 100)
+                if self._max_possible_reward > 0
+                else 0,
+                2,
+            ),
+            action_history=[
+                ActionHistoryEntry(**entry) for entry in self._action_history
+            ],
             done=False,
             reward=0.0,
         )
@@ -392,7 +511,7 @@ class CustomerSupportEnvironment(Environment):
         self,
         action: CustomerSupportAction,
         timeout_s: Optional[float] = None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> CustomerSupportObservation:
         """Execute a step and evaluate the agent's response."""
         self._state.step_count += 1
@@ -405,12 +524,14 @@ class CustomerSupportEnvironment(Environment):
         self._total_reward += reward
 
         # Record in action history
-        self._action_history.append({
-            "step": self._state.step_count,
-            "action_type": action.action_type,
-            "description": rationale,
-            "reward": round(reward, 2)
-        })
+        self._action_history.append(
+            {
+                "step": self._state.step_count,
+                "action_type": action.action_type,
+                "description": rationale,
+                "reward": round(reward, 2),
+            }
+        )
 
         # Update SLA steps left
         current_sla = self._current_ticket.get("sla_steps_left", 2)
@@ -464,10 +585,7 @@ class CustomerSupportEnvironment(Environment):
         return max(-1.0, min(1.0, score)), rationale
 
     def _evaluate_refund_action(
-        self,
-        action: CustomerSupportAction,
-        ticket: Dict,
-        policy: Dict
+        self, action: CustomerSupportAction, ticket: Dict, policy: Dict
     ) -> tuple[float, str]:
         """Evaluate refund action against policy."""
         days = ticket.get("days_since_purchase", 0)
@@ -482,7 +600,10 @@ class CustomerSupportEnvironment(Environment):
         elif action.action_type == "escalate":
             return 0.3, "Escalation before policy check is premature."
         elif action.action_type == "deny" and cannot_refund:
-            return 0.8, f"Correctly denied: {days} days since purchase or used condition."
+            return (
+                0.8,
+                f"Correctly denied: {days} days since purchase or used condition.",
+            )
         elif action.action_type == "deny" and not can_refund:
             return 0.6, "Denied refund based on suboptimal conditions."
         elif action.action_type in ["refund", "partial_refund"] and can_refund:
@@ -493,13 +614,13 @@ class CustomerSupportEnvironment(Environment):
                 rationale += f" (Warning: Amount {action.amount} exceeds order value {order_amount})"
             return score, rationale
         else:
-            return 0.1, f"Action '{action.action_type}' does not align with refund policy."
+            return (
+                0.1,
+                f"Action '{action.action_type}' does not align with refund policy.",
+            )
 
     def _evaluate_replacement_action(
-        self,
-        action: CustomerSupportAction,
-        ticket: Dict,
-        policy: Dict
+        self, action: CustomerSupportAction, ticket: Dict, policy: Dict
     ) -> tuple[float, str]:
         """Evaluate replacement action against policy."""
         days = ticket.get("days_since_purchase", 0)
@@ -519,10 +640,7 @@ class CustomerSupportEnvironment(Environment):
             return 0.1, "Action does not match replacement policy."
 
     def _evaluate_payment_action(
-        self,
-        action: CustomerSupportAction,
-        ticket: Dict,
-        policy: Dict
+        self, action: CustomerSupportAction, ticket: Dict, policy: Dict
     ) -> tuple[float, str]:
         """Evaluate payment action against policy."""
         transaction_status = ticket.get("transaction_status", "")
@@ -531,7 +649,10 @@ class CustomerSupportEnvironment(Environment):
 
         for rule in normal_rules:
             conditions = rule.get("condition", {})
-            if "duplicate_charge" in conditions and transaction_status == "duplicate_charge":
+            if (
+                "duplicate_charge" in conditions
+                and transaction_status == "duplicate_charge"
+            ):
                 expected_action = rule.get("action", "issue_refund")
                 break
             if "payment_failed" in conditions and transaction_status == "failed":
@@ -546,10 +667,7 @@ class CustomerSupportEnvironment(Environment):
         return 0.1, "Payment policy check completed."
 
     def _evaluate_delivery_action(
-        self,
-        action: CustomerSupportAction,
-        ticket: Dict,
-        policy: Dict
+        self, action: CustomerSupportAction, ticket: Dict, policy: Dict
     ) -> tuple[float, str]:
         """Evaluate delivery action against policy."""
         delayed_days = ticket.get("delivery_delayed_days", 0)
@@ -577,7 +695,9 @@ class CustomerSupportEnvironment(Environment):
             return days >= int(condition.replace(">=", ""))
         return True
 
-    def _detect_hallucination(self, action: CustomerSupportAction, ticket: Dict) -> bool:
+    def _detect_hallucination(
+        self, action: CustomerSupportAction, ticket: Dict
+    ) -> bool:
         """Detect potential hallucinations in the response."""
         response_lower = action.response.lower()
         order = ticket.get("order_info", {})

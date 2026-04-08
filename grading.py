@@ -16,9 +16,9 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 try:
-    from models import VALID_ACTION_TYPES
+    from customerSupportEnv.models import VALID_ACTION_TYPES
 except ImportError:
-    from .models import VALID_ACTION_TYPES  # type: ignore[no-redef]
+    from models import VALID_ACTION_TYPES
 
 # Decisive action types that close a ticket (analogous to a query returning rows)
 _DECISIVE_ACTIONS = {"refund", "partial_refund", "replace", "escalate", "deny"}

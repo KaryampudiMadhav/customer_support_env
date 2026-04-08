@@ -1,318 +1,354 @@
 """
-Inference script for the Customer Support Environment.
+Inference Script for Customer Support Environment
+=================================================
 
-Run environment server first:
-    uvicorn server.app:app --host 0.0.0.0 --port 8000
+MANDATORY:
+- Before submitting, ensure the following variables are defined in your environment:
+    API_BASE_URL   The API endpoint for the LLM
+    MODEL_NAME     The model identifier to use for inference
+    HF_TOKEN       Your Hugging Face / API key
 
-Then run this script:
-    API_KEY=<key> MODEL_NAME=<model> python inference.py
+- The inference script must be named `inference.py` and placed in the root directory
+- Participants must use OpenAI Client for all LLM calls using above variables
+
+STDOUT FORMAT:
+- The script must emit exactly three line types to stdout, in this order:
+    [START] task=<task_name> env=<benchmark> model=<model_name>
+    [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
+    [END]   success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
+
+  Rules:
+    - One [START] line at episode begin
+    - One [STEP] line per step, immediately after env.step() returns
+    - One [END] line after env.close(), always emitted (even on exception)
+    - reward and rewards are formatted to 2 decimal places
+    - done and success are lowercase booleans: true or false
+    - error is the raw last_action_error string, or null if none
+    - All fields on a single line with no newlines within a line
+    - Each task should return score in [0, 1]
+
+  Example:
+    [START] task=refund-test env=customerSupport model=Qwen3-VL-30B
+    [STEP] step=1 action=refund(amount=99.99) reward=0.80 done=false error=null
+    [STEP] step=2 action=close_ticket() reward=0.20 done=true error=null
+    [END] success=true steps=2 score=1.00 rewards=0.80,0.20
 """
 
-from __future__ import annotations
-
+import asyncio
 import json
 import os
-import re
-from typing import Any
+import textwrap
+from typing import Any, Dict, List, Optional
 
-try:
-    from openai import OpenAI
-except ModuleNotFoundError:
-    OpenAI = None  # type: ignore[assignment,misc]  # graceful fallback; llm_client will be None
+from openai import OpenAI
 
+# Import from customerSupportEnv package
 try:
-    from client import CustomerSupportEnv
-    from models import CustomerSupportAction, VALID_ACTION_TYPES
-    from grading import final_grade, partial_reward, strict_score
+    from customerSupportEnv.client import CustomerSupportEnv
+    from customerSupportEnv.models import CustomerSupportAction
 except ImportError:
-    from client import CustomerSupportEnv  # type: ignore[no-redef]
-    from models import CustomerSupportAction, VALID_ACTION_TYPES  # type: ignore[no-redef]
-    from grading import final_grade, partial_reward, strict_score  # type: ignore[no-redef]
+    from client import CustomerSupportEnv
+    from models import CustomerSupportAction
 
-# Four ticket categories the environment supports
-TASKS = ["refund", "replacement", "payment", "delivery"]
-TASK_MAX_STEPS = {
-    "refund": 5,
-    "replacement": 5,
-    "payment": 5,
-    "delivery": 5,
-}
+# Environment configuration
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 
+# Task configuration
+TASK_NAME = os.getenv("CUSTOMER_SUPPORT_TASK", "support_ticket")
+BENCHMARK = os.getenv("CUSTOMER_SUPPORT_BENCHMARK", "customerSupportEnv")
+TICKET_CATEGORY = os.getenv("TICKET_CATEGORY", None)
 
-# ---------------------------------------------------------------------------
-# LLM response parsing
-# ---------------------------------------------------------------------------
+# Inference configuration
+MAX_STEPS = int(os.getenv("MAX_STEPS", "8"))
+TEMPERATURE = float(os.getenv("TEMPERATURE", "0.7"))
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "500"))
+SUCCESS_SCORE_THRESHOLD = float(os.getenv("SUCCESS_SCORE_THRESHOLD", "0.5"))
 
-def parse_llm_response(text: str) -> dict[str, Any]:
-    """Parse LLM output into a CustomerSupportAction-compatible dict."""
-    raw = (text or "").strip()
-    if not raw:
-        return _default_action()
-
-    # Strip markdown code fences
-    if raw.startswith("```"):
-        raw = re.sub(r"^```(?:json)?", "", raw).strip()
-        raw = re.sub(r"```$", "", raw).strip()
-
-    # Try full JSON parse
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            return _normalise_action(parsed)
-    except Exception:
-        pass
-
-    # Try extracting first JSON object
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start >= 0 and end > start:
-        try:
-            parsed = json.loads(raw[start : end + 1])
-            if isinstance(parsed, dict):
-                return _normalise_action(parsed)
-        except Exception:
-            pass
-
-    return _default_action()
+# Valid action types
+VALID_ACTION_TYPES = [
+    "refund",
+    "partial_refund",
+    "replace",
+    "escalate",
+    "clarify",
+    "deny",
+]
 
 
-def _normalise_action(d: dict[str, Any]) -> dict[str, Any]:
-    """Ensure required fields exist and action_type is valid."""
-    action_type = str(d.get("action_type", "clarify")).strip().lower()
-    if action_type not in VALID_ACTION_TYPES:
-        action_type = "clarify"
-
-    try:
-        amount = float(d.get("amount", 0.0) or 0.0)
-    except (TypeError, ValueError):
-        amount = 0.0
-
-    return {
-        "response": str(d.get("response", "")).strip(),
-        "action_type": action_type,
-        "amount": amount,
-        "reason": str(d.get("reason", "")).strip(),
-    }
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
 
 
-def _default_action() -> dict[str, Any]:
-    return {
-        "response": "Could you please provide more details about your issue?",
-        "action_type": "clarify",
-        "amount": 0.0,
-        "reason": "Need more information to proceed.",
-    }
-
-
-# ---------------------------------------------------------------------------
-# Prompt builder
-# ---------------------------------------------------------------------------
-
-def _prompt(obs: dict[str, Any]) -> str:
-    ticket = obs.get("ticket_info", {}) or {}
-    order = obs.get("order_info", {}) or {}
-    customer = obs.get("customer_info", {}) or {}
-    history = obs.get("conversation_history", []) or []
-
-    history_text = "\n".join(f"  - {msg}" for msg in history) if history else "  (none)"
-
-    return (
-        "You are a customer support agent. Reply with JSON only.\n"
-        "Format: {\n"
-        '  "response": "<message to customer>",\n'
-        '  "action_type": "<one of: refund, partial_refund, replace, escalate, clarify, deny>",\n'
-        '  "amount": <refund amount as float, 0 if not applicable>,\n'
-        '  "reason": "<policy justification>"\n'
-        "}\n\n"
-        "=== TICKET ===\n"
-        f"Category   : {ticket.get('issue_category', 'unknown')}\n"
-        f"Difficulty : {ticket.get('difficulty', 'medium')}\n"
-        f"Ticket ID  : {ticket.get('ticket_id', '')}\n"
-        f"Impact     : {ticket.get('impact', 'Low')}\n"
-        f"Tier       : {ticket.get('tier', 'Free')}\n\n"
-        "=== CUSTOMER MESSAGE ===\n"
-        f"{obs.get('customer_message', '')}\n\n"
-        "=== ORDER INFO ===\n"
-        f"Order ID   : {order.get('order_id', '')}\n"
-        f"Product    : {order.get('product', '')}\n"
-        f"Amount     : ${order.get('amount', 0):.2f}\n"
-        f"Date       : {order.get('date', '')}\n"
-        f"Status     : {order.get('status', '')}\n\n"
-        "=== CUSTOMER INFO ===\n"
-        f"Name       : {customer.get('name', '')}\n"
-        f"Satisfaction: {customer.get('satisfaction', 0.5)}\n\n"
-        "=== CONTEXT ===\n"
-        f"Days since purchase : {obs.get('days_since_purchase', 0)}\n"
-        f"Item condition      : {obs.get('item_condition', 'unused')}\n"
-        f"User reason         : {obs.get('user_reason', '')}\n"
-        f"Transaction status  : {obs.get('transaction_status', '')}\n"
-        f"Delivery status     : {obs.get('delivery_status', '')}\n"
-        f"Delivery delayed by : {obs.get('delivery_delayed_days', 0)} days\n"
-        f"Customer sentiment  : {obs.get('sentiment', 'Neutral')}\n"
-        f"SLA steps left      : {obs.get('sla_steps_left', 2)}\n\n"
-        "=== POLICY ===\n"
-        f"{obs.get('policy_context', '(none)')}\n\n"
-        "=== CONVERSATION HISTORY ===\n"
-        f"{history_text}\n\n"
-        "=== SCORING ===\n"
-        f"Cumulative score: {obs.get('cumulative_score', 0.0):.1f}%\n"
-        f"Total reward    : {obs.get('total_reward', 0.0):.2f}\n\n"
-        "Choose the action that best aligns with policy. "
-        "Prefer the most specific action (refund/replace/deny) over 'clarify' when policy is clear."
+def log_step(
+    step: int, action: str, reward: float, done: bool, error: Optional[str]
+) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
     )
 
 
-# ---------------------------------------------------------------------------
-# Score normalisation
-# ---------------------------------------------------------------------------
-
-# strict_score is imported from grading.py (re-exported here for compat)
-_strict_score = strict_score
-
-
-# ---------------------------------------------------------------------------
-# Main loop
-# ---------------------------------------------------------------------------
-
-def run() -> int:
-    api_base_url = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-    api_key = os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY", "dummy_key")
-    model_name = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-    env_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
-    max_tokens = 512
-
-    llm_client = (
-        OpenAI(base_url=api_base_url, api_key=api_key)
-        if OpenAI is not None and api_base_url and api_key and model_name
-        else None
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        flush=True,
     )
 
-    # One persistent WebSocket connection for all tasks (use sync wrapper)
+
+def build_system_prompt() -> str:
+    return textwrap.dedent("""
+        You are a professional customer support agent handling support tickets.
+
+        Your goal is to resolve customer issues while following company policies.
+
+        Available action types:
+        - refund: Issue a full refund to the customer
+        - partial_refund: Issue a partial refund (specify amount)
+        - replace: Initiate a product replacement
+        - escalate: Escalate to a supervisor/specialist
+        - clarify: Ask the customer for more information
+        - deny: Deny the customer's request
+
+        For each action, you must provide:
+        - action_type: The type of action you're taking
+        - response: Your message to the customer explaining your decision
+        - amount: The refund amount (for refund/partial_refund actions)
+        - reason: The justification for your decision based on policy
+
+        Always be polite, professional, and empathetic in your responses.
+        Follow the policy guidelines provided in each ticket to make fair decisions.
+
+        IMPORTANT: Output your response as a valid JSON object with exactly these fields:
+        {
+            "action_type": "<action_type>",
+            "response": "<your message to the customer>",
+            "amount": <refund_amount_or_0>,
+            "reason": "<your policy-based justification>"
+        }
+
+        Do not include any text outside the JSON object.
+    """).strip()
+
+
+def build_user_prompt(obs_dict: Dict[str, Any]) -> str:
+    ticket_info = obs_dict.get("ticket_info", {})
+    order_info = obs_dict.get("order_info", {})
+    customer_info = obs_dict.get("customer_info", {})
+
+    category = (
+        ticket_info.get("issue_category", "unknown")
+        if isinstance(ticket_info, dict)
+        else "unknown"
+    )
+    difficulty = (
+        ticket_info.get("difficulty", "medium")
+        if isinstance(ticket_info, dict)
+        else "medium"
+    )
+
+    customer_message = obs_dict.get("customer_message", "No message")
+    policy_context = obs_dict.get("policy_context", "")
+    conversation_history = obs_dict.get("conversation_history", [])
+
+    days_since_purchase = obs_dict.get("days_since_purchase", 0)
+    item_condition = obs_dict.get("item_condition", "unused")
+    user_reason = obs_dict.get("user_reason", "")
+    transaction_status = obs_dict.get("transaction_status", "")
+    delivery_status = obs_dict.get("delivery_status", "")
+    delivery_delayed_days = obs_dict.get("delivery_delayed_days", 0)
+
+    order_amount = 0.0
+    if isinstance(order_info, dict):
+        order_amount = order_info.get("amount", 0.0)
+
+    prompt = f"""You are handling a {category} support ticket.
+
+Customer Message:
+{customer_message}
+
+Ticket Category: {category}
+Difficulty: {difficulty}
+
+Order Information:
+- Order ID: {order_info.get("order_id", "N/A") if isinstance(order_info, dict) else "N/A"}
+- Amount: ${order_amount:.2f}
+- Date: {order_info.get("date", "N/A") if isinstance(order_info, dict) else "N/A"}
+- Product: {order_info.get("product", "N/A") if isinstance(order_info, dict) else "N/A"}
+- Status: {order_info.get("status", "N/A") if isinstance(order_info, dict) else "N/A"}
+
+Customer Information:
+- Name: {customer_info.get("name", "N/A") if isinstance(customer_info, dict) else "N/A"}
+- Email: {customer_info.get("email", "N/A") if isinstance(customer_info, dict) else "N/A"}
+- Satisfaction: {customer_info.get("satisfaction", 0.5) * 100:.0f}%"""
+
+    if category == "refund":
+        prompt += f"""
+Refund Details:
+- Days since purchase: {days_since_purchase}
+- Item condition: {item_condition}
+- Customer reason: {user_reason}"""
+    elif category == "payment":
+        prompt += f"""
+Payment Details:
+- Transaction status: {transaction_status}"""
+    elif category == "delivery":
+        prompt += f"""
+Delivery Details:
+- Status: {delivery_status}
+- Delayed by: {delivery_delayed_days} days"""
+
+    prompt += f"""
+
+Policy Context:
+{policy_context}"""
+
+    if conversation_history:
+        prompt += """
+
+Conversation History:
+"""
+        for entry in conversation_history[-5:]:
+            prompt += entry + "\n"
+
+    prompt += """
+
+What is your response to this customer? Output only the JSON object."""
+
+    return prompt
+
+
+def parse_llm_response(response_text: str) -> CustomerSupportAction:
     try:
-        env = CustomerSupportEnv(base_url=env_url)
-        sync_env = env.sync()
+        json_start = response_text.find("{")
+        json_end = response_text.rfind("}") + 1
+
+        if json_start != -1 and json_end != 0:
+            json_str = response_text[json_start:json_end]
+            data = json.loads(json_str)
+        else:
+            data = json.loads(response_text)
+
+        action_type = data.get("action_type", "clarify")
+        if action_type not in VALID_ACTION_TYPES:
+            action_type = "clarify"
+
+        return CustomerSupportAction(
+            response=data.get("response", "I need some more information to help you."),
+            action_type=action_type,
+            amount=float(data.get("amount", 0.0)),
+            reason=data.get("reason", "Following standard procedure."),
+        )
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return CustomerSupportAction(
+            response="Could you please provide more details about your issue?",
+            action_type="clarify",
+            amount=0.0,
+            reason="Default clarification needed.",
+        )
+
+
+def get_model_action(client: OpenAI, obs: Dict[str, Any]) -> CustomerSupportAction:
+    system_prompt = build_system_prompt()
+    user_prompt = build_user_prompt(obs)
+
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+            stream=False,
+        )
+        response_text = (completion.choices[0].message.content or "").strip()
+        return parse_llm_response(response_text)
     except Exception as exc:
-        connect_error = str(exc).replace("\n", " ")
-        for task in TASKS:
-            print(f"[START] task={task} env=customer_support model={model_name}")
-            print(f"[STEP] step=1 action=clarify reward=-0.10 done=true error={connect_error}")
-            print("[END] success=false steps=1 score=0.01 rewards=-0.10")
-        return 0
+        print(f"[DEBUG] Model request failed: {exc}", flush=True)
+        return CustomerSupportAction(
+            response="I'm experiencing technical difficulties. Please hold.",
+            action_type="clarify",
+            amount=0.0,
+            reason="Technical error fallback.",
+        )
 
-    # Use plain HTTP requests to interact with the environment server (avoids
-    # websocket transport quirks in the upstream openenv client).
-    import requests
 
-    base = env_url.rstrip("/")
-    with requests.Session() as session:
-        for task in TASKS:
-            rewards: list[float] = []
-            success = False
-            steps_used = 0
-            baseline_satisfaction: float = 0.5
-            requires_decisive: bool = False
-            prev_obs_obj: dict[str, Any] | None = None
-            print(f"[START] task={task} env=customer_support model={model_name}")
+def action_to_string(action: CustomerSupportAction) -> str:
+    if action.action_type in ["refund", "partial_refund"]:
+        return f"{action.action_type}(amount={action.amount:.2f})"
+    return f"{action.action_type}()"
 
-            try:
-                # Reset via HTTP
-                resp = session.post(f"{base}/reset", json={"category": task}, timeout=10)
-                data = resp.json()
-                obs_obj = data.get("data", {}).get("observation") if "data" in data else data
-                obs_obj = obs_obj or {}
 
-                # Capture baseline values for grading
-                customer_info = obs_obj.get("customer_info", {}) or {}
-                baseline_satisfaction = float(customer_info.get("satisfaction", 0.5))
-                ticket_info = obs_obj.get("ticket_info", {}) or {}
-                requires_decisive = ticket_info.get("difficulty", "medium") == "hard"
+def get_observation_dict(obs) -> Dict[str, Any]:
+    if hasattr(obs, "model_dump"):
+        return obs.model_dump()
+    return obs
 
-                for step in range(1, TASK_MAX_STEPS[task] + 1):
-                    action_dict: dict[str, Any] = _default_action()
-                    action_error: str | None = None
 
-                    if llm_client is None:
-                        action_error = "llm_unavailable"
-                    else:
-                        try:
-                            completion = llm_client.chat.completions.create(
-                                model=model_name,
-                                temperature=0.2,
-                                max_tokens=max_tokens,
-                                messages=[  # type: ignore[arg-type]
-                                    {"role": "system", "content": "Return strict JSON only. No markdown, no prose."},
-                                    {"role": "user", "content": _prompt(obs_obj)},
-                                ],
-                            )
-                            response_text = completion.choices[0].message.content or ""
-                            action_dict = parse_llm_response(response_text)
-                            # print(f"[DEBUG] RAW LLM OUTPUT:\n{response_text}\n[DEBUG] PARSED:\n{action_dict}")
-                        except Exception as exc:
-                            action_error = str(exc).replace("\n", " ")
+async def run_episode(client: OpenAI, category: Optional[str] = None) -> Dict[str, Any]:
+    async with CustomerSupportEnv(base_url="http://localhost:8000") as env:
+        result = await env.reset(category=category)
+        obs = get_observation_dict(result.observation)
 
-                    action_type = action_dict["action_type"]
-                    action_payload = {
-                        "response": action_dict["response"],
-                        "action_type": action_type,
-                        "amount": float(action_dict.get("amount", 0.0) or 0.0),
-                        "reason": action_dict.get("reason", ""),
-                    }
+        rewards: List[float] = []
+        steps_taken = 0
 
-                    try:
-                        step_resp = session.post(f"{base}/step", json=action_payload, timeout=10)
-                        step_data = step_resp.json()
-                        obs_obj = step_data.get("data", {}).get("observation") if "data" in step_data else step_data
-                        obs_obj = obs_obj or {}
-                        env_reward = float(step_data.get("reward", 0.0) or 0.0)
-                        shaping = partial_reward(prev_obs_obj, obs_obj, action_type)
-                        reward = env_reward + shaping
-                        done = bool(step_data.get("done", False))
-                        err = action_error
-                    except Exception as exc:
-                        reward = -0.1
-                        done = False
-                        err = action_error or str(exc).replace("\n", " ")
+        for step in range(1, MAX_STEPS + 1):
+            if result.done:
+                break
 
-                    prev_obs_obj = obs_obj
-                    steps_used = step
-                    rewards.append(reward)
-                    done_str = "true" if done else "false"
-                    err_str = "null" if err is None else err
-                    print(f"[STEP] step={step} action={action_type} reward={reward:.2f} done={done_str} error={err_str}")
+            action = get_model_action(client, obs)
+            result = await env.step(action)
+            obs = get_observation_dict(result.observation)
 
-                    if done:
-                        success = reward > 0
-                        break
+            reward = result.reward or 0.0
+            done = result.done
 
-            except Exception as exc:
-                steps_used = 1
-                rewards.append(-0.1)
-                error_text = str(exc).replace("\n", " ")
-                print("[STEP] step=1 action=clarify reward=-0.10 done=true error=" + error_text)
-                action_dict = _default_action()
-                obs_obj = {}
-            finally:
-                try:
-                    last_action = action_dict.get("action_type", "clarify")
-                    score = final_grade(
-                        action_type=last_action,
-                        final_obs=obs_obj,
-                        baseline_satisfaction=baseline_satisfaction,
-                        steps_used=steps_used,
-                        requires_decisive=requires_decisive,
-                    )
-                except Exception:
-                    try:
-                        raw_score = float(obs_obj.get("cumulative_score", 0.0) or 0.0)
-                        score = _strict_score(raw_score / 100.0)
-                    except Exception:
-                        score = _strict_score(sum(rewards))
+            rewards.append(reward)
+            steps_taken = step
 
-                rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-                print(f"[END] success={'true' if success else 'false'} steps={steps_used} score={score:.2f} rewards={rewards_str}")
+            action_str = action_to_string(action)
+            log_step(step=step, action=action_str, reward=reward, done=done, error=None)
 
-    return 0
+            if done:
+                break
+
+        total_reward = sum(rewards)
+        max_possible = MAX_STEPS
+        score = min(max(total_reward / max_possible, 0.0), 1.0)
+        success = score >= SUCCESS_SCORE_THRESHOLD
+
+        return {
+            "rewards": rewards,
+            "steps": steps_taken,
+            "score": score,
+            "success": success,
+        }
+
+
+async def main() -> None:
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+
+    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+
+    try:
+        result = await run_episode(client, category=TICKET_CATEGORY)
+        log_end(
+            success=result["success"],
+            steps=result["steps"],
+            score=result["score"],
+            rewards=result["rewards"],
+        )
+    except Exception as e:
+        print(f"[DEBUG] Episode failed with error: {e}", flush=True)
+        log_end(success=False, steps=0, score=0.0, rewards=[])
 
 
 if __name__ == "__main__":
-    raise SystemExit(run())
+    asyncio.run(main())

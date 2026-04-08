@@ -21,11 +21,9 @@ except ModuleNotFoundError:
     OpenAI = None  # type: ignore[assignment,misc]  # graceful fallback; llm_client will be None
 
 try:
-    from client import CustomerSupportEnv
     from models import CustomerSupportAction, VALID_ACTION_TYPES
     from grading import final_grade, partial_reward, strict_score
 except ImportError:
-    from client import CustomerSupportEnv  # type: ignore[no-redef]
     from models import CustomerSupportAction, VALID_ACTION_TYPES  # type: ignore[no-redef]
     from grading import final_grade, partial_reward, strict_score  # type: ignore[no-redef]
 
@@ -187,10 +185,10 @@ def run() -> int:
         else None
     )
 
-    # One persistent WebSocket connection for all tasks (use sync wrapper)
+    # Verify the environment server is reachable before starting tasks
+    import requests as _req
     try:
-        env = CustomerSupportEnv(base_url=env_url)
-        sync_env = env.sync()
+        _req.get(f"{env_url}/health", timeout=5)
     except Exception as exc:
         connect_error = str(exc).replace("\n", " ")
         for task in TASKS:

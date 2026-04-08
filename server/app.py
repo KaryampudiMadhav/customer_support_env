@@ -521,14 +521,20 @@ UI_HTML = """<!DOCTYPE html>
 
   function showPayload(data) {
     outObs.textContent = pretty(data);
-    const reward = parseFloat(data.reward || 0);
+    const obsObj = (data.data && data.data.observation) ? data.data.observation : data;
+    const reward = parseFloat(data.reward !== undefined ? data.reward : (obsObj.reward || 0));
     mLast.textContent = reward.toFixed(2);
-    totalReward = data.total_reward !== undefined ? data.total_reward : (totalReward + reward);
+    
+    let currentTotal = data.total_reward !== undefined ? data.total_reward : obsObj.total_reward;
+    totalReward = currentTotal !== undefined ? currentTotal : (totalReward + reward);
     mTotal.textContent = totalReward.toFixed(2);
-    mStat.textContent = data.done ? "DONE" : "ACTIVE";
-    mStat.style.color = data.done ? "var(--card-green)" : "var(--accent)";
-    renderTicket(data);
-    renderTimeline(data);
+    
+    const isDone = data.done !== undefined ? data.done : (obsObj.done || false);
+    mStat.textContent = isDone ? "DONE" : "ACTIVE";
+    mStat.style.color = isDone ? "var(--card-green)" : "var(--accent)";
+    
+    renderTicket(obsObj);
+    renderTimeline(obsObj);
   }
 
   function setStatus(msg, isErr) {

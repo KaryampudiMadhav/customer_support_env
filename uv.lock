@@ -1614,7 +1614,14 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "openai" },
+<<<<<<< HEAD
     { name = "openenv" },
+=======
+<<<<<<< HEAD
+    { name = "openenv" },
+=======
+>>>>>>> c12f09e6fd274ae1690e152f3fd08a661b155ff4
+>>>>>>> 67137825c11df4457ae151ae1369a33b73ad0702
     { name = "openenv-core", extra = ["core"] },
     { name = "pydantic" },
     { name = "uvicorn" },
@@ -1631,9 +1638,19 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.135.3" },
     { name = "openai", specifier = ">=1.0.0" },
+<<<<<<< HEAD
     { name = "openai", specifier = ">=2.30.0" },
     { name = "openenv", specifier = ">=0.1.13" },
     { name = "openenv-core", extras = ["core"], git = "https://github.com/meta-pytorch/OpenEnv.git" },
+=======
+<<<<<<< HEAD
+    { name = "openai", specifier = ">=2.30.0" },
+    { name = "openenv", specifier = ">=0.1.13" },
+    { name = "openenv-core", extras = ["core"], git = "https://github.com/meta-pytorch/OpenEnv.git" },
+=======
+    { name = "openenv-core", extras = ["core"], specifier = ">=0.2.1" },
+>>>>>>> c12f09e6fd274ae1690e152f3fd08a661b155ff4
+>>>>>>> 67137825c11df4457ae151ae1369a33b73ad0702
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },

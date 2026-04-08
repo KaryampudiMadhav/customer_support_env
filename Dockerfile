@@ -8,6 +8,7 @@ WORKDIR /app
 COPY . /app
 
 RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
     && pip install uv \
     && uv sync --frozen --no-install-project --no-dev
 

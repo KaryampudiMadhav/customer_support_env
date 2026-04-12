@@ -148,7 +148,7 @@ def build_system_prompt() -> str:
     return textwrap.dedent(
         """
         You are an expert Customer Support Agent. Your goal is to resolve customer issues while following company policies.
-        
+
         Available Actions:
         - approve_refund: Use when a refund is justified. Requires an 'amount'.
         - deny_refund: Use when a refund is not justified.
@@ -161,7 +161,7 @@ def build_system_prompt() -> str:
 
         MANDATORY POLICY CHECK:
         Check the 'Required Fields' for the specific issue type. If any are missing, you MUST use 'request_clarification' first.
-        
+
         Mandatory Response Format:
         You must reply with a JSON object containing EXACTLY these fields:
         {
@@ -182,13 +182,13 @@ def build_user_prompt(obs) -> str:
         Customer Message: {obs.customer_message}
         Issue Type: {obs.issue_type}
         Order Info: {json.dumps(obs.order_info, indent=2)}
-        
+
         [POLICY CONTEXT]
         {obs.policy_context}
-        
+
         [CONVERSATION HISTORY]
         {history if history else "No prior history."}
-        
+
         Provide your next action in JSON format.
         """
     ).strip()
@@ -204,7 +204,7 @@ def get_model_action(client: OpenAI, obs) -> CustomersupportenvAction:
 
     system_prompt = build_system_prompt()
     user_prompt = build_user_prompt(obs)
-    
+
     try:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
@@ -217,7 +217,7 @@ def get_model_action(client: OpenAI, obs) -> CustomersupportenvAction:
         )
         content = completion.choices[0].message.content
         data = json.loads(content)
-        
+
         return CustomersupportenvAction(
             action_type=data.get("action_type", "request_clarification"),
             response=data.get("response", "I'm looking into this for you."),
@@ -236,21 +236,21 @@ def get_model_action(client: OpenAI, obs) -> CustomersupportenvAction:
 async def run_episode(env: CustomersupportenvEnv, task: Dict[str, Any], client_llm: OpenAI) -> Dict[str, Any]:
     task_id = task.get("ticket_id", "TKT-UNKNOWN")
     log_start(task_id=task_id, env="customersupportenv", model=MODEL_NAME)
-    
+
     rewards = []
     steps_taken = 0
     success = False
     score = 0.01
-    
+
     try:
         result = await env.reset(task=task)
-        
+
         for step in range(1, MAX_STEPS + 1):
             if result.done:
                 break
-            
+
             action = get_model_action(client_llm, result.observation)
-            
+
             try:
                 # Add a smaller timeout to avoid infinite hangs
                 result = await asyncio.wait_for(env.step(action), timeout=30.0)
@@ -266,27 +266,28 @@ async def run_episode(env: CustomersupportenvEnv, task: Dict[str, Any], client_l
                 reward = 0.01
                 done = True
                 error_msg = str(e)
-            
+
             rewards.append(reward)
             steps_taken = step
-            
+
             log_step(
-                step=step, 
-                action=f"{action.action_type}({action.reason[:20]}...)", 
-                reward=reward, 
-                done=done, 
+                step=step,
+                action=f"{action.action_type}({action.reason[:20]}...)",
+                reward=reward,
+                done=done,
                 error=error_msg
             )
-            
+
             if done:
                 break
-        
+
         if rewards:
-            score = rewards[-1]
+            # Final safety clamp for Phase 2 deep validation
+            score = max(0.01, min(0.99, rewards[-1]))
             success = score >= 0.6
-            
+
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
-        
+
         return {
             "task_id": task_id,
             "success": success,
@@ -294,7 +295,7 @@ async def run_episode(env: CustomersupportenvEnv, task: Dict[str, Any], client_l
             "score": score,
             "rewards": rewards
         }
-        
+
     except Exception as e:
         print(f"[DEBUG] Episode {task_id} failed: {e}")
         log_end(success=False, steps=0, score=0.01, rewards=[])
@@ -305,7 +306,7 @@ async def main() -> None:
         print("[WARNING] No API key found. Please export HF_TOKEN or API_KEY.")
 
     client_llm = OpenAI(base_url=API_BASE_URL, api_key=API_KEY or "missing")
-    
+
     try:
         # Prefer Docker if available, use exact tag 'customersupportenv:latest'
         env = await CustomersupportenvEnv.from_docker_image(IMAGE_NAME)
@@ -314,7 +315,7 @@ async def main() -> None:
         env = CustomersupportenvEnv(base_url="http://localhost:8000")
 
     results = []
-    
+
     print("\n" + "="*50)
     print("CUSTOMER SUPPORT MULTI-TASK SIMULATION (REFINED)")
     print("="*50)
@@ -324,7 +325,7 @@ async def main() -> None:
             for task in TEST_TASKS:
                 res = await run_episode(env, task, client_llm)
                 results.append(res)
-        
+
         # Aggregated Summary
         if results:
             total_tasks = len(results)
@@ -333,7 +334,7 @@ async def main() -> None:
             avg_steps = sum(r["steps"] for r in results) / total_tasks
             # Added Total Cumulative Rewards as requested
             total_rewards = sum(sum(r["rewards"]) for r in results)
-            
+
             print("\n" + "="*50)
             print("SIMULATION SUMMARY")
             print("-" * 50)

@@ -77,7 +77,7 @@ class CustomersupportenvEnv(
 
         return StepResult(
             observation=observation,
-            reward=payload.get("reward", 0.0),
+            reward=payload.get("reward", 0.01),
             done=payload.get("done", False),
         )
 

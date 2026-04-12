@@ -20,7 +20,7 @@ class CustomersupportenvEnvironment(Environment):
     """
 
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
-    
+
     # Class-level state to persist across stateless HTTP requests in simulation mode
     _shared_state: Optional[State] = None
     _shared_ticket: Optional[Dict[str, Any]] = None
@@ -41,7 +41,7 @@ class CustomersupportenvEnvironment(Environment):
         policy_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "policies")
         if not os.path.exists(policy_dir):
             policy_dir = "policies"
-        
+
         if os.path.exists(policy_dir):
             for filename in os.listdir(policy_dir):
                 if filename.endswith(".json"):
@@ -104,7 +104,7 @@ class CustomersupportenvEnvironment(Environment):
         """
         if CustomersupportenvEnvironment._shared_state:
             CustomersupportenvEnvironment._shared_state.step_count += 1
-        
+
         if not CustomersupportenvEnvironment._shared_ticket:
             raise ValueError("Environment must be reset before step.")
 
@@ -117,7 +117,7 @@ class CustomersupportenvEnvironment(Environment):
 
         # Update conversation history with action details and reward
         CustomersupportenvEnvironment._shared_history.append({
-            "role": "agent", 
+            "role": "agent",
             "message": action.response,
             "action_type": action.action_type,
             "reward": reward
@@ -138,7 +138,7 @@ class CustomersupportenvEnvironment(Environment):
         return CustomersupportenvObservation(
             customer_message=current_customer_msg,
             order_info=CustomersupportenvEnvironment._shared_ticket["order_info"],
-            policy_context="",  # Clear context on completion if done, otherwise keep? 
+            policy_context="",  # Clear context on completion if done, otherwise keep?
                                # Usually keep for multi-turn, but OpenEnv might expect it to stay.
             conversation_history=CustomersupportenvEnvironment._shared_history,
             ticket_id=CustomersupportenvEnvironment._shared_ticket["ticket_id"],
@@ -157,15 +157,15 @@ class CustomersupportenvEnvironment(Environment):
         """
         issue_type = CustomersupportenvEnvironment._shared_ticket.get("issue_type", "refund")
         policy = self._policies.get(issue_type)
-        
+
         if not policy:
             return 0.5, 0.5, True
 
         ticket_data = {**CustomersupportenvEnvironment._shared_ticket.get("order_info", {}), **CustomersupportenvEnvironment._shared_ticket}
-        
+
         # Check rules in priority order
         rule_priority = policy.get("rule_priority", ["normal_rules", "default_rule"])
-        
+
         matched_action = None
         matched_reason = "Default application"
 
@@ -175,7 +175,7 @@ class CustomersupportenvEnvironment(Environment):
                 matched_action = rules.get("action")
                 matched_reason = rules.get("reason", "Default rule")
                 break
-            
+
             for rule in rules:
                 if self._check_condition(rule.get("condition"), ticket_data):
                     matched_action = rule.get("action") or rule.get("override_action")
@@ -185,8 +185,8 @@ class CustomersupportenvEnvironment(Environment):
                 break
 
         # Scoring Logic
-        score = 0.0
-        
+        score = 0.01  # Initialize with a small positive value
+
         # Define terminal vs non-terminal
         # In this env, anything other than 'request_clarification' is terminal
         is_clarification = action.action_type == "request_clarification"
@@ -197,7 +197,7 @@ class CustomersupportenvEnvironment(Environment):
             score += 0.6
         elif is_clarification and matched_action == "request_clarification":
             score += 0.6
-        
+
         # 2. Amount matched (0.2 points)
         if action.amount is not None and "amount" in ticket_data:
             expected_amount = ticket_data["amount"]
@@ -205,7 +205,7 @@ class CustomersupportenvEnvironment(Environment):
                 score += 0.2
         elif action.action_type in ["request_clarification", "escalate"]:
             score += 0.2 # No amount expected
-        
+
         # 3. Tone/Length (0.2 points)
         if len(action.response) > 20:
             score += 0.2
@@ -217,19 +217,19 @@ class CustomersupportenvEnvironment(Environment):
             for mid in mentioned_ids:
                 if mid != order_id:
                     score -= 0.5 # Heavier penalty for wrong IDs
-        
+
         # Ensure score is strictly between 0 and 1 (not 0.0 and not 1.0)
         # as required for Phase 2 deep validation.
         score = max(0.01, min(0.99, score))
         reward = score
-        
+
         return score, reward, done
 
     def _check_condition(self, condition: Any, data: Dict[str, Any]) -> bool:
         """Check if a condition from the JSON matches the ticket data."""
         if not condition:
             return False
-        
+
         try:
             if isinstance(condition, str):
                 # Handle conditions like "missing_required_fields"
@@ -238,13 +238,13 @@ class CustomersupportenvEnvironment(Environment):
                     policy = self._policies.get(issue_type, {})
                     required = policy.get("required_fields", [])
                     return any(field not in data or data[field] is None or data[field] == "" for field in required)
-                
+
                 # Handle "user_reason is null" or "user_reason == unknown"
                 if "is null" in condition or "== unknown" in condition:
                     field = condition.split()[0]
                     val = data.get(field)
                     return val is None or val == "unknown" or val == ""
-                
+
                 # Handle " > " comparison like "amount > 500"
                 if " > " in condition:
                     try:
@@ -254,7 +254,7 @@ class CustomersupportenvEnvironment(Environment):
                             return True
                     except Exception:
                         pass
-                
+
                 # Handle " == " comparison like "suspicious_activity == true"
                 if " == " in condition:
                     try:
@@ -268,17 +268,17 @@ class CustomersupportenvEnvironment(Environment):
                             return True
                     except Exception:
                         pass
-                    
+
                 return False
 
             if isinstance(condition, dict):
                 for key, value in condition.items():
                     # Support both top-level and potential nested checks if data was flattened
                     ticket_val = data.get(key)
-                    
+
                     if ticket_val is None:
                         return False
-                    
+
                     if isinstance(value, str):
                         # Handle comparisons like "<=7"
                         match = re.match(r"([<=|>=|<|>]+)(\d+)", value)
@@ -307,7 +307,7 @@ class CustomersupportenvEnvironment(Environment):
         except Exception as e:
             print(f"[DEBUG] Condition matching error: {e}")
             return False
-        
+
         return False
 
     @property

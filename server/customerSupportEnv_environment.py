@@ -26,7 +26,7 @@ class CustomersupportenvEnvironment(Environment):
     _shared_ticket: Optional[Dict[str, Any]] = None
     _shared_history: List[Dict[str, str]] = []
     _shared_start_time: Optional[datetime] = None
-    _shared_reward: float = 0.0
+    _shared_reward: float = 0.01
 
     def __init__(self):
         """Initialize the environment and load policies."""
@@ -62,6 +62,7 @@ class CustomersupportenvEnvironment(Environment):
         CustomersupportenvEnvironment._shared_state = State(episode_id=str(uuid4()), step_count=0)
         CustomersupportenvEnvironment._shared_history = []
         CustomersupportenvEnvironment._shared_start_time = datetime.now()
+        CustomersupportenvEnvironment._shared_reward = 0.01
 
         if task:
             CustomersupportenvEnvironment._shared_ticket = task
@@ -94,7 +95,7 @@ class CustomersupportenvEnvironment(Environment):
             ticket_id=CustomersupportenvEnvironment._shared_ticket["ticket_id"],
             issue_type=issue_type,
             done=False,
-            reward=0.0
+            reward=0.01
         )
 
     def step(self, action: CustomersupportenvAction) -> CustomersupportenvObservation:
@@ -109,7 +110,10 @@ class CustomersupportenvEnvironment(Environment):
 
         # Evaluate action against policy
         score, reward, done = self._evaluate_action(action)
-        CustomersupportenvEnvironment._shared_reward += reward
+        # Update cumulative reward and clamp to strict range (0, 1)
+        # as required for Phase 2 deep validation.
+        new_total = CustomersupportenvEnvironment._shared_reward + reward
+        CustomersupportenvEnvironment._shared_reward = max(0.01, min(0.99, new_total))
 
         # Update conversation history with action details and reward
         CustomersupportenvEnvironment._shared_history.append({
@@ -214,7 +218,9 @@ class CustomersupportenvEnvironment(Environment):
                 if mid != order_id:
                     score -= 0.5 # Heavier penalty for wrong IDs
         
-        score = max(0.0, min(1.0, score))
+        # Ensure score is strictly between 0 and 1 (not 0.0 and not 1.0)
+        # as required for Phase 2 deep validation.
+        score = max(0.01, min(0.99, score))
         reward = score
         
         return score, reward, done

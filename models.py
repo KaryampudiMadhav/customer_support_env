@@ -32,6 +32,6 @@ class CustomersupportenvObservation(Observation):
     policy_context: str = Field(default="", description="Relevant company policies")
     conversation_history: List[Dict[str, Any]] = Field(default_factory=list, description="Prior messages in ticket")
     ticket_id: str = Field(default="", description="Unique ticket identifier")
-    customer_satisfaction: float = Field(default=1.0, description="Satisfaction score 0.0-1.0")
+    customer_satisfaction: float = Field(default=0.99, description="Satisfaction score 0.0-1.0")
     issue_type: str = Field(default="", description="Type: refund, return, billing, delivery")
     elapsed_time: int = Field(default=0, description="Seconds spent on ticket")

@@ -240,7 +240,7 @@ async def run_episode(env: CustomersupportenvEnv, task: Dict[str, Any], client_l
     rewards = []
     steps_taken = 0
     success = False
-    score = 0.0
+    score = 0.01
     
     try:
         result = await env.reset(task=task)
@@ -254,16 +254,16 @@ async def run_episode(env: CustomersupportenvEnv, task: Dict[str, Any], client_l
             try:
                 # Add a smaller timeout to avoid infinite hangs
                 result = await asyncio.wait_for(env.step(action), timeout=30.0)
-                reward = result.reward if result.reward is not None else 0.0
+                reward = result.reward if result.reward is not None else 0.01
                 done = result.done
                 error_msg = None
             except asyncio.TimeoutError:
-                reward = 0.0
+                reward = 0.01
                 done = True
                 error_msg = "Step timed out"
             except Exception as e:
                 print(f"[DEBUG] Step failed for {task_id}: {e}")
-                reward = 0.0
+                reward = 0.01
                 done = True
                 error_msg = str(e)
             
@@ -297,8 +297,8 @@ async def run_episode(env: CustomersupportenvEnv, task: Dict[str, Any], client_l
         
     except Exception as e:
         print(f"[DEBUG] Episode {task_id} failed: {e}")
-        log_end(success=False, steps=0, score=0.0, rewards=[])
-        return {"task_id": task_id, "success": False, "steps": 0, "score": 0.0, "rewards": []}
+        log_end(success=False, steps=0, score=0.01, rewards=[])
+        return {"task_id": task_id, "success": False, "steps": 0, "score": 0.01, "rewards": []}
 
 async def main() -> None:
     if not API_KEY:

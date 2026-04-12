@@ -454,8 +454,10 @@ def get_grade():
     """Get the final grade for the current session."""
     from server.customersupportenv_environment import CustomersupportenvEnvironment
     # Retrieve the score from shared state if available
-    reward = getattr(CustomersupportenvEnvironment, "_shared_reward", 0.0)
-    return {"score": reward}
+    reward = getattr(CustomersupportenvEnvironment, "_shared_reward", 0.01)
+    # Ensure score is strictly between 0 and 1
+    clamped_reward = max(0.01, min(0.99, reward))
+    return {"score": clamped_reward}
 
 
 def main():

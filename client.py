@@ -70,7 +70,7 @@ class CustomersupportenvEnv(
             policy_context=obs_data.get("policy_context", ""),
             conversation_history=obs_data.get("conversation_history", []),
             ticket_id=obs_data.get("ticket_id", ""),
-            customer_satisfaction=obs_data.get("customer_satisfaction", 1.0),
+            customer_satisfaction=obs_data.get("customer_satisfaction", 0.99),
             issue_type=obs_data.get("issue_type", ""),
             elapsed_time=obs_data.get("elapsed_time", 0)
         )

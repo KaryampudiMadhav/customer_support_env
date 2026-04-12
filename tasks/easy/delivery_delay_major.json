@@ -1,0 +1,16 @@
+{
+  "name": "major_delivery_delay",
+  "description": "Customer asking about a package delayed by 5 days.",
+  "data": {
+    "ticket_id": "TKT-DEL-102",
+    "customer_message": "It's been 5 days since my delivery date. I need tracking info.",
+    "order_info": {
+      "id": "ORD-DEL-102",
+      "amount": 120.00,
+      "date": "2026-04-03T10:00:00",
+      "delivery_delayed_days": 5,
+      "delivery_status": "delayed"
+    },
+    "issue_type": "delivery"
+  }
+}

@@ -9,23 +9,19 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openenv-customerSupportEnv"
+name = "openenv-customersupportenv"
 version = "0.1.0"
 description = "Customersupportenv environment for OpenEnv"
 requires-python = ">=3.10"
 dependencies = [
-    # Core OpenEnv runtime (provides FastAPI server + HTTP client types)
-    # install from github
-    # "openenv-core[core] @ git+https://github.com/meta-pytorch/OpenEnv.git",
     "openenv-core[core]>=0.2.2",
-    # Environment-specific dependencies
-    # Add all dependencies needed for your environment here
-    # Examples:
-    # "numpy>=1.19.0",
-    # "torch>=2.0.0",
-    # "gymnasium>=0.29.0",
-    # "openspiel>=1.0.0",
-    # "smolagents>=1.22.0,<2",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "jinja2>=3.1.0",
+    "pydantic>=2.0.0",
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "websockets>=11.0.0",
 ]
 
 [project.optional-dependencies]
@@ -36,10 +32,10 @@ dev = [
 
 [project.scripts]
 # Server entry point - enables running via: uv run --project . server
-# or: python -m customerSupportEnv.server.app
-server = "customerSupportEnv.server.app:main"
+# or: python -m customersupportenv.server.app
+server = "customersupportenv.server.app:main"
 
 [tool.setuptools]
 include-package-data = true
-packages = ["customerSupportEnv", "customerSupportEnv.server"]
-package-dir = { "customerSupportEnv" = ".", "customerSupportEnv.server" = "server" }
+packages = ["customersupportenv", "customersupportenv.server"]
+package-dir = { "customersupportenv" = ".", "customersupportenv.server" = "server" }

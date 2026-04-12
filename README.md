@@ -13,36 +13,38 @@ tags:
 
 # Customersupportenv Environment
 
-A simple test environment that echoes back messages. Perfect for testing the env APIs as well as demonstrating environment usage patterns.
+An environment that evaluates customer support agents against company policies. Features manual debugging UI, deterministic policy grading, and hallucination detection.
 
 ## Quick Start
 
 The simplest way to use the Customersupportenv environment is through the `CustomersupportenvEnv` class:
 
 ```python
-from customerSupportEnv import CustomersupportenvAction, CustomersupportenvEnv
+from client import CustomersupportenvAction, CustomersupportenvEnv
 
 try:
     # Create environment from Docker image
-    customerSupportEnvenv = CustomersupportenvEnv.from_docker_image("customerSupportEnv-env:latest")
+    customersupportenv = CustomersupportenvEnv.from_docker_image("openenv-customersupportenv:latest")
 
     # Reset
-    result = customerSupportEnvenv.reset()
-    print(f"Reset: {result.observation.echoed_message}")
+    result = customersupportenv.reset()
+    print(f"Ticket ID: {result.observation.ticket_id}")
+    print(f"Customer Message: {result.observation.customer_message}")
 
-    # Send multiple messages
-    messages = ["Hello, World!", "Testing echo", "Final message"]
-
-    for msg in messages:
-        result = customerSupportEnvenv.step(CustomersupportenvAction(message=msg))
-        print(f"Sent: '{msg}'")
-        print(f"  → Echoed: '{result.observation.echoed_message}'")
-        print(f"  → Length: {result.observation.message_length}")
-        print(f"  → Reward: {result.reward}")
+    # Respond to the customer
+    action = CustomersupportenvAction(
+        action_type="approve_refund",
+        response="I've processed your refund.",
+        reason="Meets unused return criteria",
+        amount=99.99
+    )
+    result = customersupportenv.step(action)
+    print(f"Reward: {result.reward}")
+    print(f"Done: {result.done}")
 
 finally:
     # Always clean up
-    customerSupportEnvenv.close()
+    customersupportenv.close()
 ```
 
 That's it! The `CustomersupportenvEnv.from_docker_image()` method handles:
@@ -57,7 +59,7 @@ Before using the environment, you need to build the Docker image:
 
 ```bash
 # From project root
-docker build -t customerSupportEnv-env:latest -f server/Dockerfile .
+openenv build --tag openenv-customersupportenv
 ```
 
 ## Deploying to Hugging Face Spaces
@@ -119,22 +121,29 @@ The deployed space includes:
 ## Environment Details
 
 ### Action
-**CustomersupportenvAction**: Contains a single field
-- `message` (str) - The message to echo back
+**CustomersupportenvAction**: The agent's decision logic and response.
+- `response` (str) - Agent's message to the customer
+- `action_type` (str) - Decision (e.g. approve_refund, request_clarification, escalate)
+- `amount` (float, optional) - Refund/credit amount if applicable
+- `reason` (str) - Justification for the decision from policy
 
 ### Observation
-**CustomersupportenvObservation**: Contains the echo response and metadata
-- `echoed_message` (str) - The message echoed back
-- `message_length` (int) - Length of the message
-- `reward` (float) - Reward based on message length (length × 0.1)
-- `done` (bool) - Always False for echo environment
-- `metadata` (dict) - Additional info like step count
+**CustomersupportenvObservation**: The state of the customer interaction.
+- `customer_message` (str) - Current customer message
+- `order_info` (dict) - Order details (id, amount, date, product)
+- `policy_context` (str) - Relevant company policies for the issue type
+- `conversation_history` (list) - Prior messages in the ticket
+- `ticket_id` (str) - Unique ticket identifier
+- `customer_satisfaction` (float) - Satisfaction score (0.0-1.0)
+- `issue_type` (str) - Type of issue (refund, return, billing, delivery)
+- `elapsed_time` (int) - Seconds spent processing the ticket
 
 ### Reward
-The reward is calculated as: `message_length × 0.1`
-- "Hi" → reward: 0.2
-- "Hello, World!" → reward: 1.3
-- Empty message → reward: 0.0
+The reward is evaluated algorithmically based on company policies:
+- Strict adherence to policy logic (e.g., matching the optimal target action) (+0.6)
+- Correctly matching payment/refund amounts (+0.2)
+- Proper response length and tone (+0.2)
+- Harsh penalties for hallucinating transaction IDs or tracking numbers (-0.5)
 
 ## Advanced Usage
 
@@ -143,33 +152,41 @@ The reward is calculated as: `message_length × 0.1`
 If you already have a Customersupportenv environment server running, you can connect directly:
 
 ```python
-from customerSupportEnv import CustomersupportenvEnv
+from client import CustomersupportenvEnv, CustomersupportenvAction
 
 # Connect to existing server
-customerSupportEnvenv = CustomersupportenvEnv(base_url="<ENV_HTTP_URL_HERE>")
+customersupportenv = CustomersupportenvEnv(base_url="<ENV_HTTP_URL_HERE>")
 
 # Use as normal
-result = customerSupportEnvenv.reset()
-result = customerSupportEnvenv.step(CustomersupportenvAction(message="Hello!"))
+result = customersupportenv.reset()
+result = customersupportenv.step(CustomersupportenvAction(
+    action_type="request_clarification",
+    response="Could you please confirm your order number?",
+    reason="Initial request lacks details."
+))
 ```
 
-Note: When connecting to an existing server, `customerSupportEnvenv.close()` will NOT stop the server.
+Note: When connecting to an existing server, `customersupportenv.close()` will NOT stop the server.
 
 ### Using the Context Manager
 
 The client supports context manager usage for automatic connection management:
 
 ```python
-from customerSupportEnv import CustomersupportenvAction, CustomersupportenvEnv
+from client import CustomersupportenvAction, CustomersupportenvEnv
 
 # Connect with context manager (auto-connects and closes)
 with CustomersupportenvEnv(base_url="http://localhost:8000") as env:
     result = env.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-    # Multiple steps with low latency
-    for msg in ["Hello", "World", "!"]:
-        result = env.step(CustomersupportenvAction(message=msg))
-        print(f"Echoed: {result.observation.echoed_message}")
+    
+    # Process actions
+    action = CustomersupportenvAction(
+        action_type="escalate",
+        response="I'm transferring you to a supervisor.",
+        reason="Suspicious duplicate charge amount"
+    )
+    result = env.step(action)
+    print(f"Reward: {result.reward}")
 ```
 
 The client uses WebSocket connections for:
@@ -195,15 +212,18 @@ app = create_app(
 Then multiple clients can connect simultaneously:
 
 ```python
-from customerSupportEnv import CustomersupportenvAction, CustomersupportenvEnv
+from client import CustomersupportenvAction, CustomersupportenvEnv
 from concurrent.futures import ThreadPoolExecutor
 
 def run_episode(client_id: int):
     with CustomersupportenvEnv(base_url="http://localhost:8000") as env:
         result = env.reset()
-        for i in range(10):
-            result = env.step(CustomersupportenvAction(message=f"Client {client_id}, step {i}"))
-        return client_id, result.observation.message_length
+        result = env.step(CustomersupportenvAction(
+            action_type="request_clarification",
+            response=f"Hello from client {client_id}, how can I help?",
+            reason="Triage step"
+        ))
+        return client_id, result.reward
 
 # Run 4 episodes concurrently
 with ThreadPoolExecutor(max_workers=4) as executor:
@@ -218,7 +238,7 @@ Test the environment logic directly without starting the HTTP server:
 
 ```bash
 # From the server directory
-python3 server/customerSupportEnv_environment.py
+python3 server/customersupportenv_environment.py
 ```
 
 This verifies that:
@@ -249,7 +269,7 @@ customerSupportEnv/
 ├── models.py              # Action and Observation models
 └── server/
     ├── __init__.py        # Server module exports
-    ├── customerSupportEnv_environment.py  # Core environment logic
+    ├── customersupportenv_environment.py  # Core environment logic
     ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
     └── Dockerfile         # Container image definition
 ```

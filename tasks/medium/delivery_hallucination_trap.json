@@ -1,0 +1,16 @@
+{
+  "name": "delivery_hallucination_trap",
+  "description": "Customer mentions incorrect Order ID to trap hallucinations.",
+  "data": {
+    "ticket_id": "TKT-DEL-902",
+    "customer_message": "My order ORD-FAKE-999 hasn't arrived!",
+    "order_info": {
+      "id": "ORD-REAL-123",
+      "amount": 50.00,
+      "date": "2026-04-05T10:00:00",
+      "delivery_delayed_days": 2,
+      "delivery_status": "delayed"
+    },
+    "issue_type": "delivery"
+  }
+}

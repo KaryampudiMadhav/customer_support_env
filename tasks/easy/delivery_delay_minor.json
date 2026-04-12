@@ -1,0 +1,16 @@
+{
+  "name": "minor_delivery_delay",
+  "description": "Customer asking about a package delayed by 2 days.",
+  "data": {
+    "ticket_id": "TKT-DEL-101",
+    "customer_message": "My package was supposed to arrive 2 days ago. Where is it?",
+    "order_info": {
+      "id": "ORD-DEL-101",
+      "amount": 45.00,
+      "date": "2026-04-06T10:00:00",
+      "delivery_delayed_days": 2,
+      "delivery_status": "delayed"
+    },
+    "issue_type": "delivery"
+  }
+}

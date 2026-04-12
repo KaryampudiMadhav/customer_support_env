@@ -1,0 +1,17 @@
+{
+  "name": "payment_duplicate",
+  "description": "Duplicate charge issue.",
+  "data": {
+    "ticket_id": "TKT-PAY-302",
+    "customer_message": "I was charged twice for my last order ORD-PAY-302. Please fix this.",
+    "order_info": {
+      "id": "ORD-PAY-302",
+      "transaction_id": "TXN_789_A",
+      "amount": 65.50,
+      "date": "2026-04-08T08:30:00",
+      "transaction_status": "duplicate_charge",
+      "duplicate_charge": true
+    },
+    "issue_type": "payment"
+  }
+}

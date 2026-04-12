@@ -1,0 +1,15 @@
+{
+  "name": "refund_missing_info",
+  "description": "Refund request with minimal detail missing required fields.",
+  "data": {
+    "ticket_id": "TKT-REF-903",
+    "customer_message": "I want a refund.",
+    "order_info": {
+      "id": "ORD-REF-903",
+      "amount": 25.00,
+      "date": "2026-04-10T10:00:00",
+      "days_since_purchase": 2
+    },
+    "issue_type": "refund"
+  }
+}

@@ -12,7 +12,10 @@ from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import CustomersupportenvAction, CustomersupportenvObservation
+try:
+    from .models import CustomersupportenvAction, CustomersupportenvObservation
+except (ImportError, ValueError):
+    from models import CustomersupportenvAction, CustomersupportenvObservation
 
 
 class CustomersupportenvEnv(
@@ -36,7 +39,7 @@ class CustomersupportenvEnv(
 
     Example with Docker:
         >>> # Automatically start container and connect
-        >>> client = CustomersupportenvEnv.from_docker_image("customerSupportEnv-env:latest")
+        >>> client = CustomersupportenvEnv.from_docker_image("openenv-customersupportenv:latest")
         >>> try:
         ...     result = client.reset()
         ...     result = client.step(CustomersupportenvAction(message="Test"))
@@ -47,39 +50,34 @@ class CustomersupportenvEnv(
     def _step_payload(self, action: CustomersupportenvAction) -> Dict:
         """
         Convert CustomersupportenvAction to JSON payload for step message.
-
-        Args:
-            action: CustomersupportenvAction instance
-
-        Returns:
-            Dictionary representation suitable for JSON encoding
         """
+        # Return fields directly without 'action' wrapper for WS bridge compatibility
         return {
-            "message": action.message,
+            "response": action.response,
+            "action_type": action.action_type,
+            "amount": action.amount,
+            "reason": action.reason
         }
 
     def _parse_result(self, payload: Dict) -> StepResult[CustomersupportenvObservation]:
         """
         Parse server response into StepResult[CustomersupportenvObservation].
-
-        Args:
-            payload: JSON response data from server
-
-        Returns:
-            StepResult with CustomersupportenvObservation
         """
         obs_data = payload.get("observation", {})
         observation = CustomersupportenvObservation(
-            echoed_message=obs_data.get("echoed_message", ""),
-            message_length=obs_data.get("message_length", 0),
-            done=payload.get("done", False),
-            reward=payload.get("reward"),
-            metadata=obs_data.get("metadata", {}),
+            customer_message=obs_data.get("customer_message", ""),
+            order_info=obs_data.get("order_info", {}),
+            policy_context=obs_data.get("policy_context", ""),
+            conversation_history=obs_data.get("conversation_history", []),
+            ticket_id=obs_data.get("ticket_id", ""),
+            customer_satisfaction=obs_data.get("customer_satisfaction", 1.0),
+            issue_type=obs_data.get("issue_type", ""),
+            elapsed_time=obs_data.get("elapsed_time", 0)
         )
 
         return StepResult(
             observation=observation,
-            reward=payload.get("reward"),
+            reward=payload.get("reward", 0.0),
             done=payload.get("done", False),
         )
 

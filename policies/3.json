@@ -80,6 +80,11 @@
       "condition": "suspicious_activity == true",
       "action": "escalate",
       "policy_reason": "Potential fraud requires manual review"
+    },
+    {
+      "condition": "amount > 500",
+      "action": "escalate",
+      "policy_reason": "High-value transactions require manual review"
     }
   ],
 

@@ -1,0 +1,17 @@
+{
+  "name": "payment_high_value",
+  "description": "High value duplicate charge dispute.",
+  "data": {
+    "ticket_id": "TKT-PAY-904",
+    "customer_message": "I was charged twice for a $600 order. Fix this!",
+    "order_info": {
+      "id": "ORD-PAY-904",
+      "transaction_id": "TXN_999_B",
+      "amount": 600.00,
+      "date": "2026-04-11T09:00:00",
+      "transaction_status": "duplicate_charge",
+      "duplicate_charge": true
+    },
+    "issue_type": "payment"
+  }
+}

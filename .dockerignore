@@ -1,0 +1,17 @@
+**/.venv
+**/__pycache__
+**/.git
+**/.pytest_cache
+**/.ipynb_checkpoints
+*.pyc
+*.pyo
+*.pyd
+.env
+.DS_Store
+*.log
+docker-compose.yml
+Dockerfile
+.dockerignore
+node_modules
+dist
+build

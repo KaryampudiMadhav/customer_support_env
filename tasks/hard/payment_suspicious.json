@@ -1,0 +1,16 @@
+{
+  "name": "payment_suspicious",
+  "description": "Suspicious activity detected on payment.",
+  "data": {
+    "ticket_id": "TKT-PAY-301",
+    "customer_message": "I see a charge I didn't authorize. What happened?",
+    "order_info": {
+      "id": "ORD-PAY-301",
+      "amount": 500.00,
+      "date": "2026-04-08T09:00:00",
+      "transaction_status": "successful",
+      "suspicious_activity": true
+    },
+    "issue_type": "payment"
+  }
+}

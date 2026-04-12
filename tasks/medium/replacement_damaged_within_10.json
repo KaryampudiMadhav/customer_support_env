@@ -1,0 +1,16 @@
+{
+  "name": "replacement_damaged_within_10",
+  "description": "Replacement for damaged item within 10 days.",
+  "data": {
+    "ticket_id": "TKT-REP-202",
+    "customer_message": "My order arrived with a cracked screen. Can I get a replacement? I received it yesterday.",
+    "order_info": {
+      "id": "ORD-REP-202",
+      "amount": 250.00,
+      "date": "2026-04-07T14:00:00",
+      "days_since_purchase": 1,
+      "user_reason": "item_damaged"
+    },
+    "issue_type": "replacement"
+  }
+}

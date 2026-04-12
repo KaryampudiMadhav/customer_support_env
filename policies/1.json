@@ -71,6 +71,14 @@
       "options": ["approve_refund", "initiate_replacement"],
       "multi_step": true,
       "policy_reason": "Wrong item delivered may qualify for refund or replacement"
+    },
+    {
+      "id": "E3",
+      "condition": {
+        "loyalty_status": "VIP"
+      },
+      "override_action": "approve_refund",
+      "policy_reason": "VIP customers are eligible for refunds even outside standard rules"
     }
   ],
 

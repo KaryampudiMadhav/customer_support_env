@@ -1,0 +1,16 @@
+{
+  "name": "refund_unused_within_7",
+  "description": "Unopened return within 7 days.",
+  "data": {
+    "ticket_id": "TKT-REF-201",
+    "customer_message": "I want to return these headphones. They are still in the shrink wrap. I bought them 4 days ago.",
+    "order_info": {
+      "id": "ORD-REF-201",
+      "amount": 99.99,
+      "date": "2026-04-04T12:00:00",
+      "days_since_purchase": 4,
+      "item_condition": "unused"
+    },
+    "issue_type": "refund"
+  }
+}

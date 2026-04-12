@@ -6,6 +6,6 @@
 
 """Customersupportenv environment server components."""
 
-from .customerSupportEnv_environment import CustomersupportenvEnvironment
+from .customersupportenv_environment import CustomersupportenvEnvironment
 
 __all__ = ["CustomersupportenvEnvironment"]

@@ -1,6 +1,6 @@
 ---
 title: Customersupportenv Environment Server
-emoji: 🏅
+emoji: 🥈
 colorFrom: indigo
 colorTo: yellow
 sdk: docker
@@ -14,19 +14,19 @@ tags:
 
 # Customersupportenv Environment
 
-An advanced evaluation environment for customer support AI agents, specifically engineered for the **Meta PyTorch Hackathon**. This environment evaluates agents against strict company policies, featuring a deterministic grading engine, manual debugging UI, and robust validation for Phase 2 deep verification.
+An advanced evaluation environment for customer support AI agents, specifically engineered for the Meta PyTorch Hackathon. This environment evaluates agents against strict company policies, featuring a deterministic grading engine, manual debugging UI, and robust validation for Phase 2 deep verification.
 
-## 🚀 Key Features
+## Key Features
 
-- **Strict Compliance**: All task scores are strictly within the open interval `(0, 1)`, ensuring compatibility with hackathon validation pipelines.
-- **Deterministic Grading**: Comprehensive policy engine that evaluates response tone, amount accuracy, and action alignment.
-- **Multi-Task Scenarios**: 8+ unique ticket scenarios covering refunds, replacements, delivery delays, and billing disputes.
-- **Interactive Dashboard**: Manual debugging UI at `/web` for real-time interaction and observation tracing.
-- **Production-Ready**: Built-in Hugging Face Spaces support for seamless deployment.
+- Strict Compliance: All task scores are strictly within the open interval (0, 1), ensuring compatibility with hackathon validation pipelines.
+- Deterministic Grading: Comprehensive policy engine that evaluates response tone, amount accuracy, and action alignment.
+- Multi-Task Scenarios: 8+ unique ticket scenarios covering refunds, replacements, delivery delays, and billing disputes.
+- Interactive Dashboard: Manual debugging UI at /web for real-time interaction and observation tracing.
+- Production-Ready: Built-in Hugging Face Spaces support for seamless deployment.
 
-## 🏃 Quick Start
+## Quick Start
 
-The simplest way to interact with the environment is using the `CustomersupportenvEnv` client:
+The simplest way to interact with the environment is using the CustomersupportenvEnv client:
 
 ```python
 from client import CustomersupportenvAction, CustomersupportenvEnv
@@ -50,38 +50,38 @@ with CustomersupportenvEnv(base_url="http://localhost:8000") as env:
     print(f"Reward: {result.reward} | Done: {result.done}")
 ```
 
-## 🛠️ Performance & Validation (Phase 2)
+## Performance and Validation (Phase 2)
 
-This environment is fully verified for the **Meta PyTorch Hackathon x Scaler School of Technology** Phase 2 deep validation.
+This environment is fully verified for the Meta PyTorch Hackathon x Scaler School of Technology Phase 2 deep validation.
 
-- **Score Range**: Guaranteed strictly between `0.01` and `0.99`.
-- **Signal Variance**: The engine provides distinct reward signals (e.g., `0.99`, `0.81`, `0.41`) to help policies learn nuanced differences.
-- **Termination Logic**: Clear episode termination on terminal actions (Refund/Replace/Escalate), while allowing multi-turn dialogue for clarification.
+- Score Range: Guaranteed strictly between 0.01 and 0.99.
+- Signal Variance: The engine provides distinct reward signals (e.g., 0.99, 0.81, 0.41) to help policies learn nuanced differences.
+- Termination Logic: Clear episode termination on terminal actions (Refund/Replace/Escalate), while allowing multi-turn dialogue for clarification.
 
-## 📊 Environment Specification
+## Environment Specification
 
 ### Observation Space
-- `customer_message`: The latest text from the customer.
-- `order_info`: JSON object with `id`, `amount`, `product`, and `status`.
-- `policy_context`: Domain-specific rules (Refund rules, Replacement thresholds).
-- `conversation_history`: List of all previous messages in the current session.
-- `customer_satisfaction`: Current satisfaction score (clamped to `0.99` max).
+- customer_message: The latest text from the customer.
+- order_info: JSON object with id, amount, product, and status.
+- policy_context: Domain-specific rules (Refund rules, Replacement thresholds).
+- conversation_history: List of all previous messages in the current session.
+- customer_satisfaction: Current satisfaction score (clamped to 0.99 max).
 
 ### Action Space
 Valid actions include:
-- `approve_refund`: Process a financial return.
-- `initiate_replacement`: Ship a new item.
-- `request_clarification`: Ask for more details (Non-terminal).
-- `apologize_and_inform`: Provide status updates.
-- `escalate`: Transfer to a senior agent.
+- approve_refund: Process a financial return.
+- initiate_replacement: Ship a new item.
+- request_clarification: Ask for more details (Non-terminal).
+- apologize_and_inform: Provide status updates.
+- escalate: Transfer to a senior agent.
 
 ### Reward Engine
-- **Policy Alignment (+0.6)**: Correct action type chosen based on logic.
-- **Calculation Accuracy (+0.2)**: Correct match for refund amounts.
-- **Tone & Conciseness (+0.2)**: Evaluation of the response quality.
-- **Hallucination Penalty (-0.5)**: Immediate negative signal if the agent invents data.
+- Policy Alignment (+0.6): Correct action type chosen based on logic.
+- Calculation Accuracy (+0.2): Correct match for refund amounts.
+- Tone and Conciseness (+0.2): Evaluation of the response quality.
+- Hallucination Penalty (-0.5): Immediate negative signal if the agent invents data.
 
-## 🐳 Deployment
+## Deployment
 
 ### Build Locally
 ```bash
@@ -98,16 +98,16 @@ uv run inference.py
 openenv push --repo-id my-org/customersupportenv
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```text
 customerSupportEnv/
 ├── client.py              # WebSocket/HTTP Environment Client
-├── models.py              # Pydantic Actions & Observations
+├── models.py              # Pydantic Actions and Observations
 ├── inference.py           # Multi-task evaluation script
 ├── server/
-│   ├── customersupportenv_environment.py  # Core Logic & Grader
-│   ├── app.py             # FastAPI Server & Dashboard
+│   ├── customersupportenv_environment.py  # Core Logic and Grader
+│   ├── app.py             # FastAPI Server and Dashboard
 │   └── Dockerfile         # Container Spec
 └── tasks/                 # Task definitions for scenarios
 ```

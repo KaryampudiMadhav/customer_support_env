@@ -95,7 +95,7 @@ class CustomersupportenvEnvironment(Environment):
             ticket_id=CustomersupportenvEnvironment._shared_ticket["ticket_id"],
             issue_type=issue_type,
             done=False,
-            reward=0.01
+            reward=0.011
         )
 
     def step(self, action: CustomersupportenvAction) -> CustomersupportenvObservation:
